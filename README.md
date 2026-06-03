@@ -1,4 +1,4 @@
-# fb-classifier-miniapp
+# miniapp
 
 Telegram Mini App page for fb-classifier's Phase 6 manual-send feature.
 
@@ -8,7 +8,7 @@ via the URL fragment, which is set by the bot per-tap and never persists
 here.
 
 - One static HTML file. No build step. `git push` → live on GitHub Pages.
-- Live at: <https://marjevani.github.io/fb-classifier-miniapp/>
+- Live at: <https://marjevani.github.io/miniapp/>
 - Full design lives in the private system repo's
   `docs/PHASE6_MANUAL_SEND.md`.
 
