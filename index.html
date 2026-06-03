@@ -28,11 +28,18 @@
   content="default-src 'self';
            script-src 'self' 'unsafe-inline' https://telegram.org;
            style-src 'self' 'unsafe-inline';
-           connect-src 'none';
+           connect-src https://maors-mac-mini.tail8c31b6.ts.net;
            img-src 'self' data:;">
-<!-- Sprint C fills the content attribute with the cloudflared tunnel URL.
-     Empty content = sendBeacon is skipped client-side (Sprint B safe default). -->
-<meta name="miniapp-api-url" content="">
+<!-- Sprint C (2026-06-03): Mini App's manual-send backend lives on the
+     operator's Mac, exposed publicly via Tailscale Funnel. The URL below
+     is the public HTTPS hostname of the Funnel; sendBeacon POSTs to
+     `<this>/api/manual_send` (see services/miniapp_backend.py in the
+     marjevani/fb-classifier-private repo).
+
+     If this hostname is ever changed (tailnet rename, Funnel disabled,
+     etc.) BOTH this meta tag AND the CSP `connect-src` directive above
+     MUST be updated together — the CSP would block the POST otherwise. -->
+<meta name="miniapp-api-url" content="https://maors-mac-mini.tail8c31b6.ts.net">
 <title>שליחה ידנית</title>
 <!-- Telegram WebApp SDK from CDN. Cached across Mini Apps the user opens. -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
