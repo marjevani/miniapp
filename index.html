@@ -1,44 +1,46 @@
 <!DOCTYPE html>
 <!--
-  fb-classifier — Phase 6 manual-send Mini App (production).
+  fb-classifier — Phase 6 manual-send Mini App.
 
   See marjevani/fb-classifier-private/docs/PHASE6_MANUAL_SEND.md for the
-  full design (architecture, threat model, sprint breakdown).
+  full design (architecture, threat model, sprint breakdown) and
+  docs/PHASE6_SECURITY_REVIEW.md (SEC-21..37) for the security audit.
 
-  This file is INTENTIONALLY public — it contains zero secrets, zero
-  per-tenant data. Every draft-specific value (draft text, FB permalink,
-  expiry) arrives via the URL fragment, which is set by the bot per-tap
-  and never persists here.
+  Zero secrets. Zero per-tenant data. Every draft-specific value is
+  fetched from the backend via /api/draft_view after the user authenticates
+  via Telegram-signed initData.
 
-  CSP notes:
-    - script-src allows telegram.org for the WebApp SDK and 'unsafe-inline'
-      for our IIFE below (no eval, no remote scripts beyond the SDK).
-    - connect-src is set per-deployment-stage:
-        Sprint B: 'none'  (no backend yet; sendBeacon silently fails by CSP,
-                           which is fine — status update is Sprint C)
-        Sprint C: <cloudflared tunnel hostname>  (backend goes live)
-    - default-src 'self' blocks everything else (XHR, fetch, websocket,
-      iframe sources, etc.) — defense-in-depth for repo compromise.
+  SEC-24 hardening (2026-06-04): JS lives in app.js (NOT inlined here),
+  so `script-src 'unsafe-inline'` is dropped from CSP — XSS payloads
+  injected via a future bug can no longer execute.
 -->
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- SEC-36i (2026-06-04): no Referer header leak to GitHub Pages — keeps
+     the `?startapp=...` value out of GitHub's access logs (defense-in-depth;
+     in practice Telegram's WebView doesn't send Referer for t.me links). -->
+<meta name="referrer" content="no-referrer">
+<!-- SEC-24 hardened CSP (2026-06-04):
+       - `script-src` no longer allows 'unsafe-inline'; only the SDK from
+         telegram.org + `'self'` (app.js)
+       - new `base-uri 'none'` / `form-action 'none'` / `object-src 'none'`
+       - `frame-ancestors` restricts where the page can be embedded
+       - `img-src` no longer allows `data:` (no inline images needed) -->
 <meta http-equiv="Content-Security-Policy"
   content="default-src 'self';
-           script-src 'self' 'unsafe-inline' https://telegram.org;
+           script-src 'self' https://telegram.org;
            style-src 'self' 'unsafe-inline';
            connect-src https://maors-mac-mini.tail8c31b6.ts.net;
-           img-src 'self' data:;">
-<!-- Sprint C (2026-06-03): Mini App's manual-send backend lives on the
-     operator's Mac, exposed publicly via Tailscale Funnel. The URL below
-     is the public HTTPS hostname of the Funnel; sendBeacon POSTs to
-     `<this>/api/manual_send` (see services/miniapp_backend.py in the
-     marjevani/fb-classifier-private repo).
-
-     If this hostname is ever changed (tailnet rename, Funnel disabled,
-     etc.) BOTH this meta tag AND the CSP `connect-src` directive above
-     MUST be updated together — the CSP would block the POST otherwise. -->
+           img-src 'self';
+           base-uri 'none';
+           form-action 'none';
+           object-src 'none';
+           frame-ancestors https://web.telegram.org https://*.telegram.org;">
+<!-- Public HTTPS hostname of the Tailscale Funnel forwarding to the
+     operator's Mac at 127.0.0.1:8765. Must match the CSP `connect-src`
+     above; if it changes, update BOTH. -->
 <meta name="miniapp-api-url" content="https://maors-mac-mini.tail8c31b6.ts.net">
 <title>שליחה ידנית</title>
 <!-- Telegram WebApp SDK from CDN. Cached across Mini Apps the user opens. -->
@@ -77,10 +79,6 @@
     white-space: pre-wrap; word-break: break-word;
     font-size: 15px; line-height: 1.55;
   }
-  .vendor-mention {
-    background: rgba(30, 136, 229, 0.1); padding: 1px 5px; border-radius: 4px;
-    color: var(--accent); font-weight: 600;
-  }
   .err-box {
     background: #f8d7da; color: #721c24;
     border: 1px solid #f5c6cb; border-radius: 10px;
@@ -95,186 +93,8 @@
     <div class="draft-text" id="draft-text-display"></div>
   </div>
 </div>
-
-<script>
-(function () {
-  // ── SDK presence guard ─────────────────────────────────────────────
-  const tg = window.Telegram && window.Telegram.WebApp;
-  if (!tg) {
-    document.body.innerHTML =
-      '<div class="err-box">דף זה נועד להיפתח דרך טלגרם.<br>' +
-      'חזור להתראה ולחץ על <b>📤 שלח ידנית</b>.</div>';
-    return;
-  }
-
-  // ── Resolve approval context ───────────────────────────────────────
-  // Option A (2026-06-03 evening): the Mini App is opened via
-  // `t.me/<bot>/<short_name>?startapp=<tenant>_<id>`. Telegram extracts
-  // the `startapp` value and surfaces it as `tg.initDataUnsafe.start_param`.
-  // Legacy fallback: the demo links still use `?tenant=...&id=...` query
-  // strings (Sprint B/C-era) — accept those for backward compat with
-  // any in-flight test messages.
-  let tenant = '', approvalId = '';
-  const startParam = (tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
-  if (startParam) {
-    // Format: <tenant>_<id> — tenant matches [a-z][a-z0-9-]*[a-z0-9],
-    // id is digits. Split on the LAST underscore so tenant can contain
-    // hyphens but not underscores (matches the slug regex).
-    const m = startParam.match(/^([a-z0-9-]+)_(\d+)$/);
-    if (m) { tenant = m[1]; approvalId = m[2]; }
-  }
-  if (!tenant || !approvalId) {
-    const qs = new URLSearchParams(window.location.search);
-    tenant = qs.get('tenant') || '';
-    approvalId = qs.get('id') || '';
-  }
-  if (!tenant || !approvalId) {
-    document.body.innerHTML =
-      '<div class="err-box">קישור לא תקין — חסרים פרטי טיוטה.<br>' +
-      'חזור להתראה ופתח מחדש.</div>';
-    return;
-  }
-
-  // ── API base URL ──────────────────────────────────────────────────
-  const apiMeta = document.querySelector('meta[name=miniapp-api-url]');
-  const apiUrl = apiMeta ? apiMeta.content.trim() : '';
-  if (!apiUrl) {
-    document.body.innerHTML =
-      '<div class="err-box">תצורה חסרה (api-url). פנה למפתח.</div>';
-    return;
-  }
-
-  tg.ready();
-  // No tg.expand() — keep compact bottom-sheet
-  tg.BackButton.show();
-  tg.BackButton.onClick(() => tg.close());
-
-  // Show a "loading" state while we fetch the draft from the backend.
-  // start_param can only carry tenant+id (64-char limit); the draft text
-  // + FB permalink come from /api/draft_view, gated by initData + chat-
-  // membership the same way /api/manual_send is.
-  const display = document.getElementById('draft-text-display');
-  display.innerText = 'טוען טיוטה…';
-  tg.MainButton.setText('📤 שלח ידנית');
-  tg.MainButton.showProgress(false);
-  tg.MainButton.show();
-
-  let draftText = '', fbUrl = '';
-
-  fetch(apiUrl + '/api/draft_view', {
-    method: 'POST',
-    // text/plain → CORS "simple request" → no preflight
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({
-      id: parseInt(approvalId, 10),
-      tenant: tenant,
-      _auth: tg.initData || '',
-    }),
-  })
-  .then(r => r.json().then(j => ({ status: r.status, body: j })))
-  .then(({ status, body }) => {
-    if (status !== 200 || !body.ok) {
-      const reason = (body && body.reason) || 'unknown_error';
-      display.innerHTML = '<i>טעינת הטיוטה נכשלה — ' + reason + '</i>';
-      tg.MainButton.hide();
-      return;
-    }
-    draftText = body.draft || '';
-    fbUrl = body.fb_url || '';
-    display.innerText = draftText;
-    if (body.already_handled) {
-      // The approval already moved to a terminal state — usually because
-      // someone else tapped ✅/❌/📤 first. Don't enable the action.
-      display.innerHTML +=
-        '<br><br><i style="color:#888">⚠ הטיוטה כבר טופלה (' +
-        (body.decision || '?') + ') — הכפתור לא פעיל</i>';
-      tg.MainButton.hide();
-      return;
-    }
-    tg.MainButton.hideProgress();
-    tg.MainButton.onClick(handleManualSend);
-  })
-  .catch(e => {
-    console.warn('draft_view fetch failed:', e);
-    display.innerHTML = '<i>שגיאת רשת בטעינת הטיוטה</i>';
-    tg.MainButton.hide();
-  });
-
-  // ── Main action ────────────────────────────────────────────────────
-  // Fires three things, in this order:
-  //   1. Clipboard write (user gesture is present → navigator.clipboard
-  //      works; old WebViews fall back to textarea+execCommand).
-  //   2. sendBeacon to the backend (survives tg.close()). The backend
-  //      verifies tg.initData and flips the DB. In Sprint B the API URL
-  //      meta tag is empty → this step is skipped (no backend yet).
-  //   3. tg.openLink to the FB post (external browser).
-  //   4. tg.close() after 200ms (lets the openLink postMessage reach
-  //      the Telegram host before WebApp is destroyed).
-  function handleManualSend() {
-    tg.MainButton.showProgress(false);
-
-    // Step 1 — clipboard
-    const copyPromise = (async () => {
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(draftText);
-          return true;
-        }
-      } catch (e) { /* fall through to fallback */ }
-      // Fallback for older WebViews: textarea + execCommand('copy').
-      // Works inside a user-gesture handler, which we are.
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = draftText;
-        ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus(); ta.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        return ok;
-      } catch (e) { return false; }
-    })();
-
-    // Step 2 — sendBeacon (fire-and-forget; the backend will accept and
-    // edit the Telegram message on its own schedule). Only fires when
-    // the api URL is configured (Sprint C onward).
-    const apiMeta = document.querySelector('meta[name=miniapp-api-url]');
-    const apiUrl = apiMeta ? apiMeta.content.trim() : '';
-    if (apiUrl) {
-      try {
-        const payload = JSON.stringify({
-          id: parseInt(approvalId, 10),  // backend expects int, not string
-          tenant: tenant,
-          _auth: tg.initData || '',
-        });
-        // text/plain Blob type — a "simple" CORS content-type, so no
-        // preflight OPTIONS is required. sendBeacon's "send before unload"
-        // guarantee BREAKS for application/json (preflight + unload race),
-        // diagnosed on first Sprint-C end-to-end test. The backend reads
-        // raw bytes and json.loads() regardless of Content-Type header,
-        // so server side is unchanged.
-        const blob = new Blob([payload], { type: 'text/plain' });
-        // sendBeacon returns false if the user-agent refused to queue
-        // the request (e.g., body too large) — we don't have a useful
-        // recovery so just log and continue.
-        const queued = navigator.sendBeacon(apiUrl + '/api/manual_send', blob);
-        if (!queued) console.warn('sendBeacon rejected by user-agent');
-      } catch (e) {
-        console.warn('sendBeacon threw:', e);
-      }
-    }
-
-    // Steps 3 + 4 — open FB, then close shortly after.
-    // The 200ms gap matches what worked in v10 testing: long enough for
-    // the openLink postMessage to be received by the host, short enough
-    // that the WebView hasn't backgrounded yet (which would suspend the
-    // setTimeout callback on iOS).
-    copyPromise.finally(() => {
-      tg.openLink(fbUrl, { try_instant_view: false });
-      setTimeout(() => tg.close(), 200);
-    });
-  }
-})();
-</script>
+<!-- SEC-24: external script (defer for clean DOM-ready ordering).
+     Inlined IIFE would require `script-src 'unsafe-inline'` — dropped 2026-06-04. -->
+<script src="app.js" defer></script>
 </body>
 </html>
