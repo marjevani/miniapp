@@ -111,11 +111,13 @@
   }
 
   // ── Parse URL ──────────────────────────────────────────────────────
-  // Query carries the approval_id (sent to backend on POST).
+  // Query carries the approval_id + tenant slug (both sent to backend
+  // on POST — tenant tells the backend which SQLite to update).
   // Fragment carries the draft_text, FB permalink, and expiry epoch —
   // never sent to the GitHub Pages server (fragments are client-only).
   const qs       = new URLSearchParams(window.location.search);
   const approvalId = qs.get('id') || '';
+  const tenant     = qs.get('tenant') || '';
   const frag     = new URLSearchParams(window.location.hash.slice(1));
 
   // base64-url-safe decode with optional padding restoration
@@ -148,7 +150,7 @@
       'חזור להתראה האחרונה ופתח מחדש.</div>';
     return;
   }
-  if (!approvalId || !draftText || !fbUrl) {
+  if (!approvalId || !tenant || !draftText || !fbUrl) {
     document.body.innerHTML =
       '<div class="err-box">קישור לא תקין — חסרים פרטי טיוטה.<br>' +
       'חזור להתראה ופתח מחדש.</div>';
@@ -214,7 +216,8 @@
     if (apiUrl) {
       try {
         const payload = JSON.stringify({
-          id: approvalId,
+          id: parseInt(approvalId, 10),  // backend expects int, not string
+          tenant: tenant,
           _auth: tg.initData || '',
         });
         const blob = new Blob([payload], { type: 'application/json' });
