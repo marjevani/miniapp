@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<!--
+  fb-classifier — Phase 6 manual-send Mini App (production).
+
+  See marjevani/fb-classifier-private/docs/PHASE6_MANUAL_SEND.md for the
+  full design (architecture, threat model, sprint breakdown).
+
+  This file is INTENTIONALLY public — it contains zero secrets, zero
+  per-tenant data. Every draft-specific value (draft text, FB permalink,
+  expiry) arrives via the URL fragment, which is set by the bot per-tap
+  and never persists here.
+
+  CSP notes:
+    - script-src allows telegram.org for the WebApp SDK and 'unsafe-inline'
+      for our IIFE below (no eval, no remote scripts beyond the SDK).
+    - connect-src is set per-deployment-stage:
+        Sprint B: 'none'  (no backend yet; sendBeacon silently fails by CSP,
+                           which is fine — status update is Sprint C)
+        Sprint C: <cloudflared tunnel hostname>  (backend goes live)
+    - default-src 'self' blocks everything else (XHR, fetch, websocket,
+      iframe sources, etc.) — defense-in-depth for repo compromise.
+-->
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self';
+           script-src 'self' 'unsafe-inline' https://telegram.org;
+           style-src 'self' 'unsafe-inline';
+           connect-src 'none';
+           img-src 'self' data:;">
+<!-- Sprint C fills the content attribute with the cloudflared tunnel URL.
+     Empty content = sendBeacon is skipped client-side (Sprint B safe default). -->
+<meta name="miniapp-api-url" content="">
+<title>שליחה ידנית</title>
+<!-- Telegram WebApp SDK from CDN. Cached across Mini Apps the user opens. -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- Pre-establish TCP+TLS to facebook.com so the openLink redirect lands
+     ~150ms faster on the tap (FB DNS+handshake already done). -->
+<link rel="preconnect" href="https://www.facebook.com">
+<style>
+  :root {
+    color-scheme: light dark;
+    --fg: var(--tg-theme-text-color, #000);
+    --fg-muted: var(--tg-theme-hint-color, #888);
+    --bg: var(--tg-theme-bg-color, #fff);
+    --bg-sec: var(--tg-theme-secondary-bg-color, #f4f4f5);
+    --accent: var(--tg-theme-button-color, #1e88e5);
+    --border: var(--tg-theme-section-separator-color, #e5e5e5);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 640px; margin: 0 auto; padding: 14px 14px 24px; }
+  .card {
+    background: var(--bg-sec); border-radius: 12px; padding: 12px 14px;
+    margin-bottom: 10px; border: 1px solid var(--border);
+  }
+  .card-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--fg-muted); font-weight: 600; margin-bottom: 6px;
+  }
+  .draft-text {
+    white-space: pre-wrap; word-break: break-word;
+    font-size: 15px; line-height: 1.55;
+  }
+  .vendor-mention {
+    background: rgba(30, 136, 229, 0.1); padding: 1px 5px; border-radius: 4px;
+    color: var(--accent); font-weight: 600;
+  }
+  .err-box {
+    background: #f8d7da; color: #721c24;
+    border: 1px solid #f5c6cb; border-radius: 10px;
+    padding: 16px; margin: 16px; text-align: center; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <div class="card-label">טיוטה לשליחה</div>
+    <div class="draft-text" id="draft-text-display"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ── SDK presence guard ─────────────────────────────────────────────
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg) {
+    // The page was opened outside Telegram (e.g., the gist URL pasted into
+    // a browser). The Mini App is meaningless without the SDK — show a
+    // clear error rather than a broken UI.
+    document.body.innerHTML =
+      '<div class="err-box">דף זה נועד להיפתח דרך טלגרם.<br>' +
+      'חזור להתראה ולחץ על <b>📤 שלח ידנית</b>.</div>';
+    return;
+  }
+
+  // ── Parse URL ──────────────────────────────────────────────────────
+  // Query carries the approval_id (sent to backend on POST).
+  // Fragment carries the draft_text, FB permalink, and expiry epoch —
+  // never sent to the GitHub Pages server (fragments are client-only).
+  const qs       = new URLSearchParams(window.location.search);
+  const approvalId = qs.get('id') || '';
+  const frag     = new URLSearchParams(window.location.hash.slice(1));
+
+  // base64-url-safe decode with optional padding restoration
+  function unb64(s) {
+    if (!s) return '';
+    const pad = '='.repeat((-s.length) & 3);
+    try {
+      // The bot encodes UTF-8 bytes; decode via Uint8Array → TextDecoder
+      // (atob alone would mangle multi-byte chars like Hebrew/emoji).
+      const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; ++i) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch (e) {
+      return '';
+    }
+  }
+  const draftText = unb64(frag.get('d'));
+  const fbUrl     = unb64(frag.get('u'));
+  const exp       = parseInt(frag.get('exp') || '0', 10);
+
+  // ── Expiry guard ───────────────────────────────────────────────────
+  // The bot encodes `exp = now + 3600` when it builds the URL. If the
+  // operator finds an old chat hours later and taps the button, refuse
+  // — sending a stale draft (which the bot's stuck-detector may have
+  // already auto-skipped) would be confusing at best, wrong at worst.
+  if (exp && (Date.now() / 1000) > exp) {
+    document.body.innerHTML =
+      '<div class="err-box">הקישור פג תוקף.<br>' +
+      'חזור להתראה האחרונה ופתח מחדש.</div>';
+    return;
+  }
+  if (!approvalId || !draftText || !fbUrl) {
+    document.body.innerHTML =
+      '<div class="err-box">קישור לא תקין — חסרים פרטי טיוטה.<br>' +
+      'חזור להתראה ופתח מחדש.</div>';
+    return;
+  }
+
+  // ── Render the draft preview ───────────────────────────────────────
+  // Use innerText (not innerHTML) so any markup-like characters in the
+  // draft render as text. The draft is operator-trusted content (it
+  // passed through Claude + the bot's pipeline) but defense-in-depth.
+  document.getElementById('draft-text-display').innerText = draftText;
+
+  // ── Setup MainButton ───────────────────────────────────────────────
+  tg.ready();
+  // No tg.expand() — keep compact bottom-sheet so the chat stays visible
+  // above (operator's 2026-06-03 UX preference).
+  tg.BackButton.show();
+  tg.BackButton.onClick(() => tg.close());
+  tg.MainButton.setText('📤 שלח ידנית');
+  tg.MainButton.show();
+  tg.MainButton.onClick(handleManualSend);
+
+  // ── Main action ────────────────────────────────────────────────────
+  // Fires three things, in this order:
+  //   1. Clipboard write (user gesture is present → navigator.clipboard
+  //      works; old WebViews fall back to textarea+execCommand).
+  //   2. sendBeacon to the backend (survives tg.close()). The backend
+  //      verifies tg.initData and flips the DB. In Sprint B the API URL
+  //      meta tag is empty → this step is skipped (no backend yet).
+  //   3. tg.openLink to the FB post (external browser).
+  //   4. tg.close() after 200ms (lets the openLink postMessage reach
+  //      the Telegram host before WebApp is destroyed).
+  function handleManualSend() {
+    tg.MainButton.showProgress(false);
+
+    // Step 1 — clipboard
+    const copyPromise = (async () => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(draftText);
+          return true;
+        }
+      } catch (e) { /* fall through to fallback */ }
+      // Fallback for older WebViews: textarea + execCommand('copy').
+      // Works inside a user-gesture handler, which we are.
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = draftText;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (e) { return false; }
+    })();
+
+    // Step 2 — sendBeacon (fire-and-forget; the backend will accept and
+    // edit the Telegram message on its own schedule). Only fires when
+    // the api URL is configured (Sprint C onward).
+    const apiMeta = document.querySelector('meta[name=miniapp-api-url]');
+    const apiUrl = apiMeta ? apiMeta.content.trim() : '';
+    if (apiUrl) {
+      try {
+        const payload = JSON.stringify({
+          id: approvalId,
+          _auth: tg.initData || '',
+        });
+        const blob = new Blob([payload], { type: 'application/json' });
+        // sendBeacon returns false if the user-agent refused to queue
+        // the request (e.g., body too large) — we don't have a useful
+        // recovery so just log and continue.
+        const queued = navigator.sendBeacon(apiUrl + '/api/manual_send', blob);
+        if (!queued) console.warn('sendBeacon rejected by user-agent');
+      } catch (e) {
+        console.warn('sendBeacon threw:', e);
+      }
+    }
+
+    // Steps 3 + 4 — open FB, then close shortly after.
+    // The 200ms gap matches what worked in v10 testing: long enough for
+    // the openLink postMessage to be received by the host, short enough
+    // that the WebView hasn't backgrounded yet (which would suspend the
+    // setTimeout callback on iOS).
+    copyPromise.finally(() => {
+      tg.openLink(fbUrl, { try_instant_view: false });
+      setTimeout(() => tg.close(), 200);
+    });
+  }
+})();
+</script>
+</body>
+</html>
