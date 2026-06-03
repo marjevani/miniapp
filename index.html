@@ -220,7 +220,13 @@
           tenant: tenant,
           _auth: tg.initData || '',
         });
-        const blob = new Blob([payload], { type: 'application/json' });
+        // text/plain Blob type — a "simple" CORS content-type, so no
+        // preflight OPTIONS is required. sendBeacon's "send before unload"
+        // guarantee BREAKS for application/json (preflight + unload race),
+        // diagnosed on first Sprint-C end-to-end test. The backend reads
+        // raw bytes and json.loads() regardless of Content-Type header,
+        // so server side is unchanged.
+        const blob = new Blob([payload], { type: 'text/plain' });
         // sendBeacon returns false if the user-agent refused to queue
         // the request (e.g., body too large) — we don't have a useful
         // recovery so just log and continue.
