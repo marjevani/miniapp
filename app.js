@@ -144,39 +144,53 @@
   });
 
   // ── Main action ────────────────────────────────────────────────────
+  // CRITICAL ORDERING for clipboard reliability (co-operator feedback
+  // 2026-06-04): clipboard write MUST execute synchronously inside the
+  // user-gesture handler — Promise chains break the gesture context on
+  // mobile WebViews (especially iOS), causing silent clipboard-write
+  // failures. We do the synchronous textarea+execCommand path FIRST
+  // (universally supported, always works inside a real click handler),
+  // then we ALSO fire the async Clipboard API path as belt-and-braces
+  // (more reliable on modern desktop / Android).
   function handleManualSend() {
     tg.MainButton.showProgress(false);
 
-    const copyPromise = (function () {
-      return new Promise(function (resolve) {
-        // Modern path (Clipboard API)
-        try {
-          if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(draftText).then(
-              function () { resolve(true); },
-              function () { resolve(fallbackCopy()); }
-            );
-            return;
-          }
-        } catch (e) { /* fall through */ }
-        resolve(fallbackCopy());
-      });
-    })();
-
-    function fallbackCopy() {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = draftText;
-        ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus(); ta.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        return ok;
-      } catch (e) { return false; }
+    // === STEP 1: clipboard, synchronous, inside the gesture ===
+    // textarea + execCommand('copy') — deprecated but universally
+    // supported inside a user-gesture handler. Doing this FIRST and
+    // SYNCHRONOUSLY is the load-bearing fix.
+    let syncCopyOk = false;
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = draftText;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      ta.setAttribute('readonly', '');
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, draftText.length);
+      syncCopyOk = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {
+      console.warn('sync copy threw:', e);
     }
 
-    // sendBeacon to backend (fire-and-forget, survives close).
+    // Belt-and-braces: also fire the async Clipboard API (no await).
+    // Some browsers prefer this path; if it works it's a no-op for the
+    // already-copied state. If it fails, the sync path above already
+    // succeeded (in most cases).
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(draftText).catch(function (e) {
+          if (!syncCopyOk) {
+            console.warn('clipboard write failed in both paths:', e);
+          }
+        });
+      }
+    } catch (e) { /* ignore — sync path may have succeeded */ }
+
+    // === STEP 2: sendBeacon to backend ===
     try {
       const payload = JSON.stringify({
         id: parseInt(approvalId, 10),
@@ -190,9 +204,12 @@
       console.warn('sendBeacon threw:', e);
     }
 
-    copyPromise.then(function () {
-      tg.openLink(fbUrl, { try_instant_view: false });
-      setTimeout(function () { tg.close(); }, 200);
-    });
+    // === STEP 3: open FB + close Mini App ===
+    // No Promise wait — we did the clipboard sync above so there's
+    // nothing to await. Closing 200ms after openLink gives the
+    // postMessage time to reach the Telegram host before the WebView
+    // is destroyed (matches v10 testing).
+    tg.openLink(fbUrl, { try_instant_view: false });
+    setTimeout(function () { tg.close(); }, 200);
   }
 })();

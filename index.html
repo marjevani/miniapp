@@ -53,6 +53,13 @@
 <!-- Pre-establish TCP+TLS to facebook.com so the openLink redirect lands
      ~150ms faster on the tap (FB DNS+handshake already done). -->
 <link rel="preconnect" href="https://www.facebook.com">
+<!-- Co-operator feedback 2026-06-04: first-time Mini App load took 5-6s on
+     cellular. Dominant cost was DNS+TLS handshake to the Tailscale Funnel
+     hostname AT THE MOMENT app.js fires fetch(). Preconnecting during HTML
+     parse lets that handshake complete in parallel with SDK loading,
+     shaving 1-3s off the first POST. Subsequent opens reuse the connection
+     and were already fast. -->
+<link rel="preconnect" href="https://maors-mac-mini.tail8c31b6.ts.net" crossorigin>
 <style>
   :root {
     color-scheme: light dark;
