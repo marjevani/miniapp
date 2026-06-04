@@ -22,11 +22,17 @@
      the `?startapp=...` value out of GitHub's access logs (defense-in-depth;
      in practice Telegram's WebView doesn't send Referer for t.me links). -->
 <meta name="referrer" content="no-referrer">
-<!-- SEC-24 hardened CSP (2026-06-04):
-       - `script-src` no longer allows 'unsafe-inline'; only the SDK from
+<!-- SEC-24 hardened CSP (2026-06-04, then relaxed 2026-06-04 14:50
+     after report that some Telegram clients show a blank screen with
+     the stricter frame-ancestors):
+       - `script-src` no longer allows 'unsafe-inline'; only SDK from
          telegram.org + `'self'` (app.js)
-       - new `base-uri 'none'` / `form-action 'none'` / `object-src 'none'`
-       - `frame-ancestors` restricts where the page can be embedded
+       - `base-uri 'none'` / `form-action 'none'` / `object-src 'none'`
+       - `frame-ancestors` REMOVED — Telegram mobile WebView and desktop
+         use different embedding contexts; the strict allowlist blocked
+         rendering on at least one client (diagnosed via co-operator
+         report 2026-06-04: blue screen, no content). The other CSP
+         directives still close the main XSS attack vector.
        - `img-src` no longer allows `data:` (no inline images needed) -->
 <meta http-equiv="Content-Security-Policy"
   content="default-src 'self';
@@ -36,8 +42,7 @@
            img-src 'self';
            base-uri 'none';
            form-action 'none';
-           object-src 'none';
-           frame-ancestors https://web.telegram.org https://*.telegram.org;">
+           object-src 'none';">
 <!-- Public HTTPS hostname of the Tailscale Funnel forwarding to the
      operator's Mac at 127.0.0.1:8765. Must match the CSP `connect-src`
      above; if it changes, update BOTH. -->
@@ -90,8 +95,18 @@
 <div class="container">
   <div class="card">
     <div class="card-label">טיוטה לשליחה</div>
-    <div class="draft-text" id="draft-text-display"></div>
+    <!-- Static "loading" placeholder so a JS-failure / CSP-block /
+         network-issue / cached-broken-state never produces a blank
+         blue screen. app.js will replace this with the actual draft
+         or with a more specific error message once it runs. -->
+    <div class="draft-text" id="draft-text-display">טוען טיוטה…</div>
   </div>
+  <noscript>
+    <div class="err-box">
+      JavaScript נדרש לפעולת המיני־אפ.<br>
+      ודא שטלגרם מעודכן ונסה שוב.
+    </div>
+  </noscript>
 </div>
 <!-- SEC-24: external script (defer for clean DOM-ready ordering).
      Inlined IIFE would require `script-src 'unsafe-inline'` — dropped 2026-06-04. -->
