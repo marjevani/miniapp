@@ -96,11 +96,36 @@
 
   const display = document.getElementById('draft-text-display');
   setText(display, 'טוען טיוטה…');
-  tg.MainButton.setText('📤 שלח ידנית');
-  tg.MainButton.showProgress(false);
-  tg.MainButton.show();
 
+  // L1 (2026-06-04): MainButton appears IMMEDIATELY on page load with
+  // the click handler attached. Operators don't have to wait for the
+  // backend's /api/draft_view response before they can tap. If they
+  // tap before the draft arrives, we queue the action and auto-fire
+  // it the moment the draft loads. Cuts perceived "time-until-tappable"
+  // from ~2-3s to ~50ms (Co-operator Rami feedback 2026-06-04: "5-6s
+  // before the button became tappable").
   let draftText = '', fbUrl = '';
+  let isReady = false;        // true once draft_view returned successfully
+  let pendingTap = false;     // true if user tapped while loading
+  let isHandled = false;      // true if draft was already_handled (terminal)
+
+  tg.MainButton.setText('📤 שלח ידנית');
+  tg.MainButton.showProgress(false);  // visual: "I'm loading the draft"
+  tg.MainButton.show();
+  tg.MainButton.onClick(function () {
+    if (isHandled) {
+      return;  // shouldn't be reachable — hide() should have fired
+    }
+    if (isReady) {
+      handleManualSend();
+    } else {
+      // User tapped while we're still loading. Queue the action and
+      // remember it; fire as soon as draft_view returns. MainButton
+      // already shows the spinner from page load, so visual feedback
+      // is consistent.
+      pendingTap = true;
+    }
+  });
 
   fetch(apiUrl + '/api/draft_view', {
     method: 'POST',
@@ -129,11 +154,16 @@
     setText(display, draftText);  // safe — textContent
     if (body.already_handled) {
       showHandledNote(body.decision);  // safe — uses appendChild/textContent
+      isHandled = true;
       tg.MainButton.hide();
       return;
     }
     tg.MainButton.hideProgress();
-    tg.MainButton.onClick(handleManualSend);
+    isReady = true;
+    // L1: if the user already tapped while we were loading, fire NOW.
+    if (pendingTap) {
+      handleManualSend();
+    }
   })
   .catch(function (e) {
     console.warn('draft_view fetch failed:', e);
