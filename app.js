@@ -174,53 +174,62 @@
   });
 
   // ── Main action ────────────────────────────────────────────────────
-  // CRITICAL ORDERING for clipboard reliability (co-operator feedback
-  // 2026-06-04): clipboard write MUST execute synchronously inside the
-  // user-gesture handler — Promise chains break the gesture context on
-  // mobile WebViews (especially iOS), causing silent clipboard-write
-  // failures. We do the synchronous textarea+execCommand path FIRST
-  // (universally supported, always works inside a real click handler),
-  // then we ALSO fire the async Clipboard API path as belt-and-braces
-  // (more reliable on modern desktop / Android).
+  // Android clipboard fix (2026-06-04 evening) — Rami reported draft
+  // not landing in clipboard on Android Telegram WebView.
+  //
+  // Strategy: fire EVERY clipboard method aggressively, track success
+  // via a flag (async Clipboard API resolves into it; execCommand sets
+  // it synchronously). Wait briefly (250ms) for async path to resolve,
+  // then branch:
+  //   - SUCCESS path: openLink + close (~250ms perceived latency)
+  //   - FAILURE path: switch UI to a visible draft + "long-press to
+  //     copy" instructions + separate "open FB" button. Operator
+  //     manually copies via OS gesture, then taps to proceed.
   function handleManualSend() {
     tg.MainButton.showProgress(false);
 
-    // === STEP 1: clipboard, synchronous, inside the gesture ===
-    // textarea + execCommand('copy') — deprecated but universally
-    // supported inside a user-gesture handler. Doing this FIRST and
-    // SYNCHRONOUSLY is the load-bearing fix.
-    let syncCopyOk = false;
+    let clipboardOK = false;
+
+    // METHOD 1: navigator.clipboard.writeText — fire-and-forget INSIDE
+    // the gesture (don't await; the WRITE commits synchronously, only
+    // the Promise resolution is async).
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        navigator.clipboard.writeText(draftText).then(
+          function () { clipboardOK = true; },
+          function (e) { console.warn('navigator.clipboard rejected:', e); }
+        );
+      } catch (e) {
+        console.warn('navigator.clipboard threw:', e);
+      }
+    }
+
+    // METHOD 2: textarea + execCommand — broader compat with mobile
+    // WebViews. CRITICAL: use position:absolute + left:-9999px instead
+    // of position:fixed + opacity:0. Some Android WebViews refuse to
+    // run document.execCommand('copy') on hidden elements.
     try {
       const ta = document.createElement('textarea');
       ta.value = draftText;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      ta.style.opacity = '1';  // visible to the layout engine, just offscreen
       ta.setAttribute('readonly', '');
+      ta.setAttribute('aria-hidden', 'true');
       document.body.appendChild(ta);
       ta.focus();
       ta.select();
       ta.setSelectionRange(0, draftText.length);
-      syncCopyOk = document.execCommand('copy');
+      const execOk = document.execCommand('copy');
       document.body.removeChild(ta);
+      if (execOk) clipboardOK = true;
     } catch (e) {
-      console.warn('sync copy threw:', e);
+      console.warn('execCommand copy threw:', e);
     }
 
-    // Belt-and-braces: also fire the async Clipboard API (no await).
-    // Some browsers prefer this path; if it works it's a no-op for the
-    // already-copied state. If it fails, the sync path above already
-    // succeeded (in most cases).
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(draftText).catch(function (e) {
-          if (!syncCopyOk) {
-            console.warn('clipboard write failed in both paths:', e);
-          }
-        });
-      }
-    } catch (e) { /* ignore — sync path may have succeeded */ }
-
-    // === STEP 2: sendBeacon to backend ===
+    // sendBeacon — always fire (status update is independent of
+    // clipboard success).
     try {
       const payload = JSON.stringify({
         id: parseInt(approvalId, 10),
@@ -234,12 +243,66 @@
       console.warn('sendBeacon threw:', e);
     }
 
-    // === STEP 3: open FB + close Mini App ===
-    // No Promise wait — we did the clipboard sync above so there's
-    // nothing to await. Closing 200ms after openLink gives the
-    // postMessage time to reach the Telegram host before the WebView
-    // is destroyed (matches v10 testing).
-    tg.openLink(fbUrl, { try_instant_view: false });
-    setTimeout(function () { tg.close(); }, 200);
+    // Wait briefly for async Clipboard API to resolve, then decide
+    // which path to take.
+    setTimeout(function () {
+      if (clipboardOK) {
+        // Happy path — clipboard populated by at least one method.
+        tg.openLink(fbUrl, { try_instant_view: false });
+        setTimeout(function () { tg.close(); }, 200);
+      } else {
+        // Fallback — both clipboard methods failed. Show manual-copy
+        // UI so operator can long-press to copy via OS gesture, then
+        // tap a separate button to open FB.
+        showManualCopyFallback();
+      }
+    }, 250);
+  }
+
+  // ── Fallback UI for failed automatic clipboard ─────────────────────
+  function showManualCopyFallback() {
+    tg.MainButton.hide();
+    clearChildren(display);
+
+    // Warning banner
+    const warn = makeEl('div');
+    warn.textContent = '⚠️ ההעתקה אוטומטית לא עבדה. בחר את הטיוטה למטה (לחיצה ארוכה) ולחץ "העתקה", ואז לחץ על הכפתור הכחול לפתיחת פייסבוק.';
+    warn.style.background = '#fff3cd';
+    warn.style.color = '#856404';
+    warn.style.padding = '12px';
+    warn.style.borderRadius = '8px';
+    warn.style.marginBottom = '12px';
+    warn.style.fontSize = '13px';
+    warn.style.lineHeight = '1.5';
+    display.appendChild(warn);
+
+    // Selectable draft in a contenteditable div — OS long-press menu
+    // ("Select All / Copy") works reliably on every mobile platform.
+    const draftBox = makeEl('div');
+    draftBox.textContent = draftText;
+    draftBox.style.whiteSpace = 'pre-wrap';
+    draftBox.style.padding = '12px';
+    draftBox.style.background = 'white';
+    draftBox.style.color = '#000';
+    draftBox.style.border = '1px solid #ccc';
+    draftBox.style.borderRadius = '8px';
+    draftBox.style.userSelect = 'all';
+    draftBox.style.webkitUserSelect = 'all';
+    draftBox.style.fontSize = '15px';
+    draftBox.style.lineHeight = '1.55';
+    draftBox.setAttribute('contenteditable', 'false');
+    draftBox.setAttribute('tabindex', '0');
+    display.appendChild(draftBox);
+
+    // "Open Facebook" button — a SEPARATE user gesture, so openLink
+    // works reliably even though the original tap's gesture context
+    // is gone by now.
+    tg.MainButton.setText('📘 פתח את הפוסט בפייסבוק');
+    tg.MainButton.show();
+    tg.MainButton.hideProgress();
+    tg.MainButton.onClick(function () {
+      tg.openLink(fbUrl, { try_instant_view: false });
+      setTimeout(function () { tg.close(); }, 200);
+    });
   }
 })();
