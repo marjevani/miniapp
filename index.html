@@ -79,20 +79,15 @@
     -webkit-font-smoothing: antialiased;
   }
   .container {
-    max-width: 640px; margin: 0 auto; padding: 14px 14px 24px;
-    /* 2026-06-05 UX: flex column + min-height = full Telegram viewport
-       so margin-top: auto on the primary button pushes it to the
-       bottom of the visible area regardless of how short the draft
-       is. Without this, a short draft leaves the button in the
-       upper-middle of the screen — operator's thumb has to reach.
-       100dvh (dynamic viewport height) handles Telegram-WebView's
-       changing chrome correctly on modern browsers; 100vh fallback
-       for older ones; app.js also sets an explicit pixel min-height
-       from tg.viewportStableHeight as the most reliable signal. */
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    min-height: 100dvh;
+    max-width: 640px; margin: 0 auto;
+    /* Top padding for the card; bottom padding reserves space for the
+       FIXED primary button (~50px button + 24px gap + safe-area) so
+       content doesn't sit underneath it. The previous flex + auto-
+       margin approach didn't reliably push the button to the bottom
+       in Telegram's WebView (100dvh sometimes resolves to content
+       height, zeroing out the auto-margin). Position: fixed on the
+       button (below) is unconditional — works in every WebView. */
+    padding: 14px 14px 96px;
   }
   .card {
     background: var(--bg-sec); border-radius: 12px; padding: 12px 14px;
@@ -137,15 +132,22 @@
      activation check for clipboard writes in Telegram Android WebView.
      A real in-page <button> click DOES create that activation. */
   .primary-btn {
-    display: block;
-    width: 100%;
+    /* 2026-06-05 UX (rev 2): position: fixed pins the button to the
+       viewport bottom regardless of any flex/min-height behavior in
+       the surrounding WebView. `env(safe-area-inset-bottom, 0px)`
+       respects iOS notch/home-indicator areas; the +14px gives a
+       comfortable visual gap above whichever boundary is the real
+       bottom. left/right=14px matches the container's horizontal
+       padding, so the button visually aligns with the card above
+       even though their layout systems differ.
+       z-index: 10 keeps it above the scrolling card content. */
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    left: 14px;
+    right: 14px;
+    max-width: 612px;  /* 640px container max - 2 * 14px sides */
+    margin: 0 auto;
     padding: 16px;
-    /* 2026-06-05 UX: margin-top: auto pushes the button to the bottom
-       of the flex-column container (set via .container above). Keeps
-       a 4px floor before the container's bottom padding (24px), so
-       the button sits ~28px above the screen bottom edge — thumb-
-       reachable but not touching the very edge. */
-    margin: auto 0 4px;
     font-size: 17px;
     font-weight: 600;
     font-family: inherit;
@@ -155,6 +157,7 @@
     border-radius: 12px;
     cursor: pointer;
     transition: opacity 0.15s;
+    z-index: 10;
   }
   .primary-btn:disabled {
     opacity: 0.5;

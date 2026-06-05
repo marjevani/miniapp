@@ -103,28 +103,15 @@
   tg.ready();
   // 2026-06-05 UX change: respect the URL's `mode=compact` parameter
   // instead of force-expanding to full height. Compact bottom-sheet
-  // keeps the primary button thumb-accessible (sitting just above
-  // Telegram's tab bar) without the operator having to reach all the
-  // way up the screen.
+  // keeps the primary button thumb-accessible.
   //
   // tg.expand();   ← retired; let compact mode stand
-
-  // 2026-06-05 UX: pin the primary button to the BOTTOM of the visible
-  // Mini App viewport (not the bottom of the layout content) regardless
-  // of how short the draft is. The CSS in index.html sets the container
-  // to a flex column with min-height: 100dvh + margin-top: auto on the
-  // button — that handles modern browsers. Telegram WebView can report
-  // viewport differently from `dvh`, so we also set an explicit pixel
-  // height from tg.viewportStableHeight and update on viewportChanged
-  // (which fires when the user swipes the sheet up/down).
-  function syncContainerHeight() {
-    const c = document.querySelector('.container');
-    if (!c) return;
-    const h = tg.viewportStableHeight || tg.viewportHeight || 0;
-    if (h > 0) c.style.minHeight = h + 'px';
-  }
-  syncContainerHeight();
-  try { tg.onEvent('viewportChanged', syncContainerHeight); } catch (e) {}
+  //
+  // The "button at viewport bottom" UX is now handled purely in CSS
+  // (position: fixed in index.html). Earlier attempts using flex +
+  // min-height: 100dvh + margin-top: auto didn't render reliably in
+  // Telegram's WebView — 100dvh can resolve to content height there,
+  // zeroing out the auto-margin. position: fixed is unconditional.
 
   tg.BackButton.show();
   tg.BackButton.onClick(function () { tg.close(); });
