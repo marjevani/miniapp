@@ -68,6 +68,18 @@
   // query string from pre-Sprint-E demo URLs.
   let tenant = '', approvalId = '';
   const startParam = (tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
+
+  // ── O1 EXPERIMENT (2026-06-04 evening) ────────────────────────────
+  // Test branch — does an IN-PAGE button click satisfy clipboard's
+  // user-gesture check in Telegram Android WebView (where MainButton
+  // taps fail because they arrive via postMessage, not as a real
+  // transient activation on the page frame)?
+  // Trigger URL: ?startapp=TESTINPAGE
+  // Delete after experiment concludes.
+  if (startParam === 'TESTINPAGE') {
+    return renderInPageCopyTest(tg);
+  }
+
   if (startParam) {
     const m = startParam.match(/^([a-z0-9-]+)_(\d+)$/);
     if (m) { tenant = m[1]; approvalId = m[2]; }
@@ -303,6 +315,169 @@
     tg.MainButton.onClick(function () {
       tg.openLink(fbUrl, { try_instant_view: false });
       setTimeout(function () { tg.close(); }, 200);
+    });
+  }
+
+  // ── O1 EXPERIMENT (delete after conclusion) ────────────────────────
+  // Hypothesis: a real in-page <button> tap creates a Chromium
+  // transient activation on the page frame, where MainButton (via
+  // postMessage) does not. If the activation is the only blocker (not
+  // the missing clipboard-write permission grant in DrKLO/Telegram),
+  // this experiment will succeed and we can keep the Mini App with a
+  // simple widget swap. If it still fails → permission gate is
+  // dominant → ship Phase 7 (native browser).
+  function renderInPageCopyTest(tg) {
+    tg.ready();
+    tg.BackButton.show();
+    tg.BackButton.onClick(function () { tg.close(); });
+    tg.MainButton.hide();
+
+    const SAMPLE = (
+      'בדיקת העתקה ניסיונית — אם הטקסט הזה מודבק בשלמותו ב-WhatsApp, ' +
+      'הניסוי הצליח. ' +
+      'מאיר דרורי, אחד המשווקים שלנו בקהילה לצמיגים וגלגלים, נמצא ' +
+      'בכרמיאל ושולח לכל הארץ. כולל גם ערכת גלגל חליפי וגם איזון ' +
+      'דיגיטלי במחיר תחרותי. ' +
+      'אורך המחרוזת: כ-400 תווים — שלוש פעמים יותר מטיוטה ממוצעת. ' +
+      'אם זה עובד דרך כפתור in-page, אנחנו שומרים על ה-Mini App. ' +
+      '#TEST_INPAGE_COPY_EXPERIMENT_O1'
+    );
+
+    clearChildren(document.body);
+    const container = makeEl('div', { style: { padding: '14px', maxWidth: '640px', margin: '0 auto' } });
+
+    const header = makeEl('h2', null, '🧪 ניסוי O1 — העתקה מ-Mini App');
+    header.style.fontSize = '17px';
+    header.style.margin = '0 0 8px';
+    container.appendChild(header);
+
+    const intro = makeEl('div');
+    intro.textContent = (
+      'מטרת הניסוי: לבדוק אם לחיצה על כפתור REAL בתוך הדף ' +
+      '(לא MainButton של טלגרם) מצליחה להעתיק טקסט ללוח. ' +
+      'אם כן — נשמור על Mini App. אם לא — נעבור לדפדפן.'
+    );
+    intro.style.background = '#fff3cd';
+    intro.style.color = '#856404';
+    intro.style.padding = '10px';
+    intro.style.borderRadius = '8px';
+    intro.style.marginBottom = '10px';
+    intro.style.fontSize = '13px';
+    intro.style.lineHeight = '1.5';
+    container.appendChild(intro);
+
+    const taLabel = makeEl('div', null, 'הטקסט להעתקה:');
+    taLabel.style.fontSize = '12px';
+    taLabel.style.color = '#666';
+    taLabel.style.marginBottom = '4px';
+    container.appendChild(taLabel);
+
+    const ta = makeEl('textarea');
+    ta.value = SAMPLE;
+    ta.setAttribute('readonly', '');
+    ta.style.width = '100%';
+    ta.style.minHeight = '120px';
+    ta.style.padding = '10px';
+    ta.style.fontSize = '14px';
+    ta.style.fontFamily = 'monospace';
+    ta.style.border = '1px solid #ccc';
+    ta.style.borderRadius = '6px';
+    ta.style.background = '#f4f4f5';
+    ta.style.color = '#000';
+    ta.style.boxSizing = 'border-box';
+    ta.style.marginBottom = '14px';
+    container.appendChild(ta);
+
+    const btn = makeEl('button', null, '🧪 העתק (in-page button)');
+    btn.style.display = 'block';
+    btn.style.width = '100%';
+    btn.style.padding = '14px';
+    btn.style.fontSize = '16px';
+    btn.style.fontWeight = '600';
+    btn.style.background = '#1e88e5';
+    btn.style.color = 'white';
+    btn.style.border = 'none';
+    btn.style.borderRadius = '10px';
+    btn.style.cursor = 'pointer';
+    btn.style.marginBottom = '12px';
+    container.appendChild(btn);
+
+    const result = makeEl('pre');
+    result.style.background = '#fff';
+    result.style.border = '1px solid #ccc';
+    result.style.borderRadius = '6px';
+    result.style.padding = '10px';
+    result.style.fontSize = '12px';
+    result.style.whiteSpace = 'pre-wrap';
+    result.style.minHeight = '80px';
+    result.style.color = '#000';
+    result.textContent = '(תוצאות יופיעו כאן אחרי לחיצה על הכפתור)';
+    container.appendChild(result);
+
+    const instr = makeEl('div');
+    instr.style.fontSize = '12px';
+    instr.style.color = '#666';
+    instr.style.marginTop = '12px';
+    instr.style.lineHeight = '1.6';
+    instr.textContent = (
+      'אחרי לחיצה: עברו ל-WhatsApp, פתחו צ\'אט, ' +
+      'לחצו לחיצה ארוכה על שדה הקלדה → הדבק. ' +
+      'אם הטקסט המלא מופיע — הניסוי הצליח. צלמו מסך ושלחו.'
+    );
+    container.appendChild(instr);
+
+    document.body.appendChild(container);
+
+    btn.addEventListener('click', function () {
+      const out = [];
+      out.push('=== O1 in-page button test ===');
+      out.push('Time: ' + new Date().toISOString());
+      out.push('UA: ' + navigator.userAgent);
+      out.push('Secure context: ' + window.isSecureContext);
+      out.push('clipboard API present: ' + !!(navigator.clipboard && navigator.clipboard.writeText));
+      out.push('');
+
+      // Method 1: execCommand on the visible textarea
+      let execResult = 'NOT-RUN';
+      let execError = '';
+      try {
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        execResult = document.execCommand('copy') ? 'TRUE' : 'FALSE';
+      } catch (e) {
+        execResult = 'THREW';
+        execError = String(e && (e.name + ': ' + e.message)) || String(e);
+      }
+      out.push('[Method 1] execCommand(copy) on visible textarea:');
+      out.push('  returned: ' + execResult);
+      if (execError) out.push('  error: ' + execError);
+      out.push('');
+
+      // Method 2: navigator.clipboard.writeText (sync-fire, log async result)
+      out.push('[Method 2] navigator.clipboard.writeText:');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          navigator.clipboard.writeText(SAMPLE).then(
+            function () {
+              result.textContent += '\n  [async] writeText RESOLVED ✓';
+            },
+            function (e) {
+              result.textContent += '\n  [async] writeText REJECTED: ' +
+                String(e && (e.name + ': ' + e.message));
+            }
+          );
+          out.push('  fired (waiting for async result…)');
+        } catch (e) {
+          out.push('  THREW synchronously: ' + String(e && (e.name + ': ' + e.message)));
+        }
+      } else {
+        out.push('  API not present');
+      }
+      out.push('');
+      out.push('>>> Now switch to WhatsApp + paste to verify what actually landed in clipboard.');
+
+      result.textContent = out.join('\n');
     });
   }
 })();
