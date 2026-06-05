@@ -105,13 +105,27 @@
   // instead of force-expanding to full height. Compact bottom-sheet
   // keeps the primary button thumb-accessible (sitting just above
   // Telegram's tab bar) without the operator having to reach all the
-  // way up the screen. Previous behavior force-expanded "to give the
-  // button room" — the actual problem (the textarea taking up the
-  // whole viewport) is now bounded by the more conservative
-  // max-height on textarea.draft-text below. User can still swipe up
-  // to expand if they want a fuller view of a long draft.
+  // way up the screen.
   //
   // tg.expand();   ← retired; let compact mode stand
+
+  // 2026-06-05 UX: pin the primary button to the BOTTOM of the visible
+  // Mini App viewport (not the bottom of the layout content) regardless
+  // of how short the draft is. The CSS in index.html sets the container
+  // to a flex column with min-height: 100dvh + margin-top: auto on the
+  // button — that handles modern browsers. Telegram WebView can report
+  // viewport differently from `dvh`, so we also set an explicit pixel
+  // height from tg.viewportStableHeight and update on viewportChanged
+  // (which fires when the user swipes the sheet up/down).
+  function syncContainerHeight() {
+    const c = document.querySelector('.container');
+    if (!c) return;
+    const h = tg.viewportStableHeight || tg.viewportHeight || 0;
+    if (h > 0) c.style.minHeight = h + 'px';
+  }
+  syncContainerHeight();
+  try { tg.onEvent('viewportChanged', syncContainerHeight); } catch (e) {}
+
   tg.BackButton.show();
   tg.BackButton.onClick(function () { tg.close(); });
   // O2: MainButton retired in favor of the in-page #send-btn. Hide it

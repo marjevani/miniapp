@@ -78,7 +78,22 @@
     font-size: 15px; line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-  .container { max-width: 640px; margin: 0 auto; padding: 14px 14px 24px; }
+  .container {
+    max-width: 640px; margin: 0 auto; padding: 14px 14px 24px;
+    /* 2026-06-05 UX: flex column + min-height = full Telegram viewport
+       so margin-top: auto on the primary button pushes it to the
+       bottom of the visible area regardless of how short the draft
+       is. Without this, a short draft leaves the button in the
+       upper-middle of the screen — operator's thumb has to reach.
+       100dvh (dynamic viewport height) handles Telegram-WebView's
+       changing chrome correctly on modern browsers; 100vh fallback
+       for older ones; app.js also sets an explicit pixel min-height
+       from tg.viewportStableHeight as the most reliable signal. */
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
   .card {
     background: var(--bg-sec); border-radius: 12px; padding: 12px 14px;
     margin-bottom: 10px; border: 1px solid var(--border);
@@ -125,7 +140,12 @@
     display: block;
     width: 100%;
     padding: 16px;
-    margin: 14px 0 4px;
+    /* 2026-06-05 UX: margin-top: auto pushes the button to the bottom
+       of the flex-column container (set via .container above). Keeps
+       a 4px floor before the container's bottom padding (24px), so
+       the button sits ~28px above the screen bottom edge — thumb-
+       reachable but not touching the very edge. */
+    margin: auto 0 4px;
     font-size: 17px;
     font-weight: 600;
     font-family: inherit;
