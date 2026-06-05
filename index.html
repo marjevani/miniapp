@@ -81,13 +81,11 @@
   .container {
     max-width: 640px; margin: 0 auto;
     /* Top padding for the card; bottom padding reserves space for the
-       FIXED primary button (~50px button + 24px gap + safe-area) so
-       content doesn't sit underneath it. The previous flex + auto-
-       margin approach didn't reliably push the button to the bottom
-       in Telegram's WebView (100dvh sometimes resolves to content
-       height, zeroing out the auto-margin). Position: fixed on the
-       button (below) is unconditional — works in every WebView. */
-    padding: 14px 14px 96px;
+       FIXED primary button (170px button + 14px gap + safe-area ≈
+       up to ~220px on devices with iOS home indicator) so card content
+       doesn't sit underneath. Bumped from 96px to 200px in rev 4 when
+       the button height grew to 170px. */
+    padding: 14px 14px 200px;
   }
   .card {
     background: var(--bg-sec); border-radius: 12px; padding: 12px 14px;
@@ -160,6 +158,15 @@
     right: 14px;
     max-width: 612px;  /* 640px container max - 2 * 14px sides */
     margin: 0 auto;
+    /* 2026-06-05 UX (rev 4): button stretched ~3× taller (upward,
+       since position: fixed pins the bottom edge). Bigger thumb
+       target, easier to tap on phones. min-height + flex centering
+       so the label stays in the middle of the taller button
+       regardless of WebView quirks. */
+    min-height: 170px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 16px;
     font-size: 17px;
     font-weight: 600;
