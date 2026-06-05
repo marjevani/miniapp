@@ -94,11 +94,16 @@
   /* O2 (2026-06-04): the draft is a real <textarea> so the in-page
      button can document.execCommand('copy') on it. Styled to LOOK
      like a card body — no visible border, transparent background,
-     auto-grow within max-height. */
+     auto-grow within max-height.
+     2026-06-05: max-height tightened from 50vh to 32vh so the button
+     stays visible in compact-mode (the bottom-sheet viewport is
+     ~55-65vh on most phones). Long drafts scroll internally inside
+     the textarea instead of pushing the button off-screen. User can
+     swipe up to expand the Mini App if they want a fuller view. */
   textarea.draft-text {
     width: 100%;
     min-height: 80px;
-    max-height: 50vh;
+    max-height: 32vh;
     padding: 0;
     margin: 0;
     border: none;

@@ -101,8 +101,17 @@
 
   // ── Init Telegram chrome ───────────────────────────────────────────
   tg.ready();
-  tg.expand();  // bottom-sheet → full height; gives the in-page button
-                // room and prevents the user having to drag the sheet up
+  // 2026-06-05 UX change: respect the URL's `mode=compact` parameter
+  // instead of force-expanding to full height. Compact bottom-sheet
+  // keeps the primary button thumb-accessible (sitting just above
+  // Telegram's tab bar) without the operator having to reach all the
+  // way up the screen. Previous behavior force-expanded "to give the
+  // button room" — the actual problem (the textarea taking up the
+  // whole viewport) is now bounded by the more conservative
+  // max-height on textarea.draft-text below. User can still swipe up
+  // to expand if they want a fuller view of a long draft.
+  //
+  // tg.expand();   ← retired; let compact mode stand
   tg.BackButton.show();
   tg.BackButton.onClick(function () { tg.close(); });
   // O2: MainButton retired in favor of the in-page #send-btn. Hide it
