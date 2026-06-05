@@ -91,6 +91,50 @@
     white-space: pre-wrap; word-break: break-word;
     font-size: 15px; line-height: 1.55;
   }
+  /* O2 (2026-06-04): the draft is a real <textarea> so the in-page
+     button can document.execCommand('copy') on it. Styled to LOOK
+     like a card body — no visible border, transparent background,
+     auto-grow within max-height. */
+  textarea.draft-text {
+    width: 100%;
+    min-height: 80px;
+    max-height: 50vh;
+    padding: 0;
+    margin: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    line-height: 1.55;
+    resize: none;
+    overflow-y: auto;
+    -webkit-appearance: none;
+    direction: rtl;
+  }
+  /* Primary action — replaces Telegram's MainButton because MainButton
+     taps arrive via postMessage and don't satisfy Chromium's transient
+     activation check for clipboard writes in Telegram Android WebView.
+     A real in-page <button> click DOES create that activation. */
+  .primary-btn {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    margin: 14px 0 4px;
+    font-size: 17px;
+    font-weight: 600;
+    font-family: inherit;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .primary-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
   .err-box {
     background: #f8d7da; color: #721c24;
     border: 1px solid #f5c6cb; border-radius: 10px;
@@ -102,12 +146,18 @@
 <div class="container">
   <div class="card">
     <div class="card-label">טיוטה לשליחה</div>
-    <!-- Static "loading" placeholder so a JS-failure / CSP-block /
-         network-issue / cached-broken-state never produces a blank
-         blue screen. app.js will replace this with the actual draft
-         or with a more specific error message once it runs. -->
-    <div class="draft-text" id="draft-text-display">טוען טיוטה…</div>
+    <!-- O2 (2026-06-04): draft display is a real <textarea> (not a div)
+         so app.js can document.execCommand('copy') on it after an
+         in-page button click. Styled via textarea.draft-text in
+         <style> above to look identical to the previous <div> body.
+         Static "loading" value so a JS-failure / CSP-block / cached-
+         broken-state never produces a blank screen. -->
+    <textarea class="draft-text" id="draft-text-display" readonly dir="rtl">טוען טיוטה…</textarea>
   </div>
+  <!-- Primary action button — in-page <button>, NOT MainButton. See
+       app.js comment for the load-bearing gesture-activation rationale.
+       Initially disabled until the draft loads from the backend. -->
+  <button id="send-btn" class="primary-btn" disabled>📤 שלח ידנית</button>
   <noscript>
     <div class="err-box">
       JavaScript נדרש לפעולת המיני־אפ.<br>

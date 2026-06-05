@@ -1,20 +1,44 @@
 // fb-classifier Mini App — Phase 6 manual-send.
 //
-// Lives as a separate file (extracted from index.html SEC-24 hardening,
-// 2026-06-04) so the CSP can drop `script-src 'unsafe-inline'` — XSS
-// payloads injected via a future bug can no longer execute.
+// O2 architecture (2026-06-04, after O1 experiment):
 //
-// Public API surface: none. Reads start_param + initData from
-// window.Telegram.WebApp, fetches draft from backend, wires MainButton.
+//   In Telegram Android WebView, the asynchronous Clipboard API
+//   (`navigator.clipboard.writeText`) is blocked by a missing
+//   `RESOURCE_CLIPBOARD_WRITE` grant in DrKLO/Telegram's
+//   `BotWebViewContainer.onPermissionRequest`. Confirmed by direct
+//   source-code read (deep investigation 2026-06-04 evening).
+//
+//   The synchronous `document.execCommand('copy')` path uses different
+//   plumbing — it requires only a Chromium "transient activation" on
+//   the page frame, not a permission grant. A real in-page <button>
+//   click creates that activation. Telegram's MainButton tap, which
+//   arrives via postMessage from the native UI, does NOT.
+//
+//   Verified: Rami's Android device successfully pasted the full
+//   400-char Hebrew O1 test string into WhatsApp after tapping an
+//   in-page <button> + execCommand('copy') on a visible textarea.
+//
+// Architecture in this file:
+//   1. Draft display is a real <textarea readonly> (in index.html),
+//      visible to the user, styled to look like a card body. Lives
+//      in the DOM from page load.
+//   2. Primary action is an in-page <button id="send-btn">, NOT
+//      MainButton. MainButton is hidden.
+//   3. Button click handler runs inside the user-gesture context:
+//        a. Focus + select the textarea
+//        b. document.execCommand('copy')
+//        c. sendBeacon to /api/manual_send (status update, independent
+//           of clipboard outcome)
+//        d. tg.openLink(fb_url) + tg.close()
+//
+// SEC-24 hardening: this file is loaded via <script src> so the CSP
+// can drop `script-src 'unsafe-inline'`. All user-facing text goes
+// through textContent / textarea.value — never innerHTML.
 
 (function () {
   'use strict';
 
-  // ── Safe DOM-text helpers (SEC-24 hardening) ───────────────────────
-  // All user-facing text MUST go through these — no innerHTML anywhere
-  // in this file. textContent escapes special chars; setting innerHTML
-  // with backend-supplied data is the XSS sink we removed.
-  function setText(el, txt) { el.textContent = String(txt); }
+  // ── Safe DOM-text helpers (SEC-24) ─────────────────────────────────
   function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
   function makeEl(tag, attrs, textContent) {
     const e = document.createElement(tag);
@@ -29,33 +53,18 @@
     if (textContent !== undefined) e.textContent = String(textContent);
     return e;
   }
-  function showError(htmlSafeMessage) {
-    // Replaces body content with a single .err-box div containing
-    // a TEXT NODE only — no innerHTML, no HTML interpretation.
+  function showError(msg) {
     clearChildren(document.body);
     const box = makeEl('div', { className: 'err-box' });
-    // Allow simple <br> by splitting on a sentinel. Caller passes only
-    // strings made of fixed app text — no backend-supplied content.
-    const lines = String(htmlSafeMessage).split('\n');
+    const lines = String(msg).split('\n');
     lines.forEach(function (line, i) {
       if (i > 0) box.appendChild(makeEl('br'));
       box.appendChild(document.createTextNode(line));
     });
     document.body.appendChild(box);
   }
-  function showHandledNote(decision) {
-    // Append a "<br><br><i>already handled</i>" note to the draft
-    // display safely (no innerHTML += pattern).
-    const display = document.getElementById('draft-text-display');
-    display.appendChild(makeEl('br'));
-    display.appendChild(makeEl('br'));
-    const note = makeEl('i', { style: { color: '#888' } });
-    note.textContent =
-      '⚠ הטיוטה כבר טופלה (' + String(decision || '?') + ') — הכפתור לא פעיל';
-    display.appendChild(note);
-  }
 
-  // ── SDK presence guard ─────────────────────────────────────────────
+  // ── SDK guard ──────────────────────────────────────────────────────
   const tg = window.Telegram && window.Telegram.WebApp;
   if (!tg) {
     showError('דף זה נועד להיפתח דרך טלגרם.\nחזור להתראה ולחץ על 📤 שלח ידנית.');
@@ -63,23 +72,11 @@
   }
 
   // ── Resolve approval context ───────────────────────────────────────
-  // Option A: Telegram surfaces the BotFather `?startapp=` value as
+  // Telegram surfaces the BotFather `?startapp=` value as
   // tg.initDataUnsafe.start_param. Legacy fallback: ?tenant=&id=
   // query string from pre-Sprint-E demo URLs.
   let tenant = '', approvalId = '';
   const startParam = (tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
-
-  // ── O1 EXPERIMENT (2026-06-04 evening) ────────────────────────────
-  // Test branch — does an IN-PAGE button click satisfy clipboard's
-  // user-gesture check in Telegram Android WebView (where MainButton
-  // taps fail because they arrive via postMessage, not as a real
-  // transient activation on the page frame)?
-  // Trigger URL: ?startapp=TESTINPAGE
-  // Delete after experiment concludes.
-  if (startParam === 'TESTINPAGE') {
-    return renderInPageCopyTest(tg);
-  }
-
   if (startParam) {
     const m = startParam.match(/^([a-z0-9-]+)_(\d+)$/);
     if (m) { tenant = m[1]; approvalId = m[2]; }
@@ -102,43 +99,24 @@
     return;
   }
 
+  // ── Init Telegram chrome ───────────────────────────────────────────
   tg.ready();
+  tg.expand();  // bottom-sheet → full height; gives the in-page button
+                // room and prevents the user having to drag the sheet up
   tg.BackButton.show();
   tg.BackButton.onClick(function () { tg.close(); });
+  // O2: MainButton retired in favor of the in-page #send-btn. Hide it
+  // explicitly so any cached MainButton state from previous Mini Apps
+  // the user opened in this Telegram session doesn't leak into our UI.
+  tg.MainButton.hide();
 
-  const display = document.getElementById('draft-text-display');
-  setText(display, 'טוען טיוטה…');
+  // ── Wire DOM refs ─────────────────────────────────────────────────
+  const ta = document.getElementById('draft-text-display');   // <textarea>
+  const btn = document.getElementById('send-btn');             // <button>
+  let fbUrl = '';
+  let isHandled = false;
 
-  // L1 (2026-06-04): MainButton appears IMMEDIATELY on page load with
-  // the click handler attached. Operators don't have to wait for the
-  // backend's /api/draft_view response before they can tap. If they
-  // tap before the draft arrives, we queue the action and auto-fire
-  // it the moment the draft loads. Cuts perceived "time-until-tappable"
-  // from ~2-3s to ~50ms (Co-operator Rami feedback 2026-06-04: "5-6s
-  // before the button became tappable").
-  let draftText = '', fbUrl = '';
-  let isReady = false;        // true once draft_view returned successfully
-  let pendingTap = false;     // true if user tapped while loading
-  let isHandled = false;      // true if draft was already_handled (terminal)
-
-  tg.MainButton.setText('📤 שלח ידנית');
-  tg.MainButton.showProgress(false);  // visual: "I'm loading the draft"
-  tg.MainButton.show();
-  tg.MainButton.onClick(function () {
-    if (isHandled) {
-      return;  // shouldn't be reachable — hide() should have fired
-    }
-    if (isReady) {
-      handleManualSend();
-    } else {
-      // User tapped while we're still loading. Queue the action and
-      // remember it; fire as soon as draft_view returns. MainButton
-      // already shows the spinner from page load, so visual feedback
-      // is consistent.
-      pendingTap = true;
-    }
-  });
-
+  // ── Fetch draft from backend ───────────────────────────────────────
   fetch(apiUrl + '/api/draft_view', {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
@@ -153,95 +131,59 @@
     const status = x.status, body = x.body;
     if (status !== 200 || !body.ok) {
       const reason = (body && body.reason) || 'unknown_error';
-      // SEC-24: build the error DOM safely — no innerHTML.
-      clearChildren(display);
-      const i = makeEl('i');
-      i.textContent = 'טעינת הטיוטה נכשלה — ' + reason;
-      display.appendChild(i);
-      tg.MainButton.hide();
+      ta.value = 'טעינת הטיוטה נכשלה — ' + reason;
+      btn.style.display = 'none';
       return;
     }
-    draftText = body.draft || '';
+    ta.value = body.draft || '';
     fbUrl = body.fb_url || '';
-    setText(display, draftText);  // safe — textContent
     if (body.already_handled) {
-      showHandledNote(body.decision);  // safe — uses appendChild/textContent
+      ta.value += '\n\n⚠ הטיוטה כבר טופלה (' +
+        (body.decision || '?') + ') — הכפתור לא פעיל';
       isHandled = true;
-      tg.MainButton.hide();
+      btn.style.display = 'none';
       return;
     }
-    tg.MainButton.hideProgress();
-    isReady = true;
-    // L1: if the user already tapped while we were loading, fire NOW.
-    if (pendingTap) {
-      handleManualSend();
-    }
+    btn.disabled = false;
   })
   .catch(function (e) {
     console.warn('draft_view fetch failed:', e);
-    clearChildren(display);
-    const i = makeEl('i', null, 'שגיאת רשת בטעינת הטיוטה');
-    display.appendChild(i);
-    tg.MainButton.hide();
+    ta.value = 'שגיאת רשת בטעינת הטיוטה';
+    btn.style.display = 'none';
   });
 
-  // ── Main action ────────────────────────────────────────────────────
-  // Android clipboard fix (2026-06-04 evening) — Rami reported draft
-  // not landing in clipboard on Android Telegram WebView.
+  // ── Main action: in-page button click ──────────────────────────────
+  // CRITICAL: this entire handler runs synchronously inside the click
+  // event so the user-gesture / transient-activation context stays
+  // alive across:
+  //   1. document.execCommand('copy')    ← needs gesture activation
+  //   2. navigator.sendBeacon            ← does not need gesture, but
+  //                                        gets one anyway
+  //   3. tg.openLink                     ← does not need gesture
+  //   4. tg.close                        ← does not need gesture
   //
-  // Strategy: fire EVERY clipboard method aggressively, track success
-  // via a flag (async Clipboard API resolves into it; execCommand sets
-  // it synchronously). Wait briefly (250ms) for async path to resolve,
-  // then branch:
-  //   - SUCCESS path: openLink + close (~250ms perceived latency)
-  //   - FAILURE path: switch UI to a visible draft + "long-press to
-  //     copy" instructions + separate "open FB" button. Operator
-  //     manually copies via OS gesture, then taps to proceed.
-  function handleManualSend() {
-    tg.MainButton.showProgress(false);
+  // The order matters: copy MUST run first (before any async work)
+  // because awaiting anything (including a .then()) would tear down
+  // the activation context. We don't even await the sendBeacon.
+  btn.addEventListener('click', function () {
+    if (isHandled || btn.disabled) return;
 
-    let clipboardOK = false;
+    // Visual feedback for the duration of the click.
+    btn.disabled = true;
+    btn.textContent = '⏳ מעתיק…';
 
-    // METHOD 1: navigator.clipboard.writeText — fire-and-forget INSIDE
-    // the gesture (don't await; the WRITE commits synchronously, only
-    // the Promise resolution is async).
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      try {
-        navigator.clipboard.writeText(draftText).then(
-          function () { clipboardOK = true; },
-          function (e) { console.warn('navigator.clipboard rejected:', e); }
-        );
-      } catch (e) {
-        console.warn('navigator.clipboard threw:', e);
-      }
-    }
-
-    // METHOD 2: textarea + execCommand — broader compat with mobile
-    // WebViews. CRITICAL: use position:absolute + left:-9999px instead
-    // of position:fixed + opacity:0. Some Android WebViews refuse to
-    // run document.execCommand('copy') on hidden elements.
+    // 1. Copy via execCommand on the visible textarea.
+    let copied = false;
     try {
-      const ta = document.createElement('textarea');
-      ta.value = draftText;
-      ta.style.position = 'absolute';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      ta.style.opacity = '1';  // visible to the layout engine, just offscreen
-      ta.setAttribute('readonly', '');
-      ta.setAttribute('aria-hidden', 'true');
-      document.body.appendChild(ta);
       ta.focus();
       ta.select();
-      ta.setSelectionRange(0, draftText.length);
-      const execOk = document.execCommand('copy');
-      document.body.removeChild(ta);
-      if (execOk) clipboardOK = true;
+      ta.setSelectionRange(0, ta.value.length);
+      copied = document.execCommand('copy');
     } catch (e) {
-      console.warn('execCommand copy threw:', e);
+      console.warn('execCommand threw:', e);
     }
 
-    // sendBeacon — always fire (status update is independent of
-    // clipboard success).
+    // 2. Status update — independent of clipboard outcome.
     try {
       const payload = JSON.stringify({
         id: parseInt(approvalId, 10),
@@ -255,229 +197,20 @@
       console.warn('sendBeacon threw:', e);
     }
 
-    // Wait briefly for async Clipboard API to resolve, then decide
-    // which path to take.
-    setTimeout(function () {
-      if (clipboardOK) {
-        // Happy path — clipboard populated by at least one method.
-        tg.openLink(fbUrl, { try_instant_view: false });
-        setTimeout(function () { tg.close(); }, 200);
-      } else {
-        // Fallback — both clipboard methods failed. Show manual-copy
-        // UI so operator can long-press to copy via OS gesture, then
-        // tap a separate button to open FB.
-        showManualCopyFallback();
-      }
-    }, 250);
-  }
-
-  // ── Fallback UI for failed automatic clipboard ─────────────────────
-  function showManualCopyFallback() {
-    tg.MainButton.hide();
-    clearChildren(display);
-
-    // Warning banner
-    const warn = makeEl('div');
-    warn.textContent = '⚠️ ההעתקה אוטומטית לא עבדה. בחר את הטיוטה למטה (לחיצה ארוכה) ולחץ "העתקה", ואז לחץ על הכפתור הכחול לפתיחת פייסבוק.';
-    warn.style.background = '#fff3cd';
-    warn.style.color = '#856404';
-    warn.style.padding = '12px';
-    warn.style.borderRadius = '8px';
-    warn.style.marginBottom = '12px';
-    warn.style.fontSize = '13px';
-    warn.style.lineHeight = '1.5';
-    display.appendChild(warn);
-
-    // Selectable draft in a contenteditable div — OS long-press menu
-    // ("Select All / Copy") works reliably on every mobile platform.
-    const draftBox = makeEl('div');
-    draftBox.textContent = draftText;
-    draftBox.style.whiteSpace = 'pre-wrap';
-    draftBox.style.padding = '12px';
-    draftBox.style.background = 'white';
-    draftBox.style.color = '#000';
-    draftBox.style.border = '1px solid #ccc';
-    draftBox.style.borderRadius = '8px';
-    draftBox.style.userSelect = 'all';
-    draftBox.style.webkitUserSelect = 'all';
-    draftBox.style.fontSize = '15px';
-    draftBox.style.lineHeight = '1.55';
-    draftBox.setAttribute('contenteditable', 'false');
-    draftBox.setAttribute('tabindex', '0');
-    display.appendChild(draftBox);
-
-    // "Open Facebook" button — a SEPARATE user gesture, so openLink
-    // works reliably even though the original tap's gesture context
-    // is gone by now.
-    tg.MainButton.setText('📘 פתח את הפוסט בפייסבוק');
-    tg.MainButton.show();
-    tg.MainButton.hideProgress();
-    tg.MainButton.onClick(function () {
+    // 3. Branch on copy outcome.
+    if (copied) {
+      // Happy path: open FB + close Mini App. 200ms gives the postMessage
+      // chain time to reach the Telegram host before the WebView is torn
+      // down (matches Sprint E timing).
       tg.openLink(fbUrl, { try_instant_view: false });
       setTimeout(function () { tg.close(); }, 200);
-    });
-  }
-
-  // ── O1 EXPERIMENT (delete after conclusion) ────────────────────────
-  // Hypothesis: a real in-page <button> tap creates a Chromium
-  // transient activation on the page frame, where MainButton (via
-  // postMessage) does not. If the activation is the only blocker (not
-  // the missing clipboard-write permission grant in DrKLO/Telegram),
-  // this experiment will succeed and we can keep the Mini App with a
-  // simple widget swap. If it still fails → permission gate is
-  // dominant → ship Phase 7 (native browser).
-  function renderInPageCopyTest(tg) {
-    tg.ready();
-    tg.BackButton.show();
-    tg.BackButton.onClick(function () { tg.close(); });
-    tg.MainButton.hide();
-
-    const SAMPLE = (
-      'בדיקת העתקה ניסיונית — אם הטקסט הזה מודבק בשלמותו ב-WhatsApp, ' +
-      'הניסוי הצליח. ' +
-      'מאיר דרורי, אחד המשווקים שלנו בקהילה לצמיגים וגלגלים, נמצא ' +
-      'בכרמיאל ושולח לכל הארץ. כולל גם ערכת גלגל חליפי וגם איזון ' +
-      'דיגיטלי במחיר תחרותי. ' +
-      'אורך המחרוזת: כ-400 תווים — שלוש פעמים יותר מטיוטה ממוצעת. ' +
-      'אם זה עובד דרך כפתור in-page, אנחנו שומרים על ה-Mini App. ' +
-      '#TEST_INPAGE_COPY_EXPERIMENT_O1'
-    );
-
-    clearChildren(document.body);
-    const container = makeEl('div', { style: { padding: '14px', maxWidth: '640px', margin: '0 auto' } });
-
-    const header = makeEl('h2', null, '🧪 ניסוי O1 — העתקה מ-Mini App');
-    header.style.fontSize = '17px';
-    header.style.margin = '0 0 8px';
-    container.appendChild(header);
-
-    const intro = makeEl('div');
-    intro.textContent = (
-      'מטרת הניסוי: לבדוק אם לחיצה על כפתור REAL בתוך הדף ' +
-      '(לא MainButton של טלגרם) מצליחה להעתיק טקסט ללוח. ' +
-      'אם כן — נשמור על Mini App. אם לא — נעבור לדפדפן.'
-    );
-    intro.style.background = '#fff3cd';
-    intro.style.color = '#856404';
-    intro.style.padding = '10px';
-    intro.style.borderRadius = '8px';
-    intro.style.marginBottom = '10px';
-    intro.style.fontSize = '13px';
-    intro.style.lineHeight = '1.5';
-    container.appendChild(intro);
-
-    const taLabel = makeEl('div', null, 'הטקסט להעתקה:');
-    taLabel.style.fontSize = '12px';
-    taLabel.style.color = '#666';
-    taLabel.style.marginBottom = '4px';
-    container.appendChild(taLabel);
-
-    const ta = makeEl('textarea');
-    ta.value = SAMPLE;
-    ta.setAttribute('readonly', '');
-    ta.style.width = '100%';
-    ta.style.minHeight = '120px';
-    ta.style.padding = '10px';
-    ta.style.fontSize = '14px';
-    ta.style.fontFamily = 'monospace';
-    ta.style.border = '1px solid #ccc';
-    ta.style.borderRadius = '6px';
-    ta.style.background = '#f4f4f5';
-    ta.style.color = '#000';
-    ta.style.boxSizing = 'border-box';
-    ta.style.marginBottom = '14px';
-    container.appendChild(ta);
-
-    const btn = makeEl('button', null, '🧪 העתק (in-page button)');
-    btn.style.display = 'block';
-    btn.style.width = '100%';
-    btn.style.padding = '14px';
-    btn.style.fontSize = '16px';
-    btn.style.fontWeight = '600';
-    btn.style.background = '#1e88e5';
-    btn.style.color = 'white';
-    btn.style.border = 'none';
-    btn.style.borderRadius = '10px';
-    btn.style.cursor = 'pointer';
-    btn.style.marginBottom = '12px';
-    container.appendChild(btn);
-
-    const result = makeEl('pre');
-    result.style.background = '#fff';
-    result.style.border = '1px solid #ccc';
-    result.style.borderRadius = '6px';
-    result.style.padding = '10px';
-    result.style.fontSize = '12px';
-    result.style.whiteSpace = 'pre-wrap';
-    result.style.minHeight = '80px';
-    result.style.color = '#000';
-    result.textContent = '(תוצאות יופיעו כאן אחרי לחיצה על הכפתור)';
-    container.appendChild(result);
-
-    const instr = makeEl('div');
-    instr.style.fontSize = '12px';
-    instr.style.color = '#666';
-    instr.style.marginTop = '12px';
-    instr.style.lineHeight = '1.6';
-    instr.textContent = (
-      'אחרי לחיצה: עברו ל-WhatsApp, פתחו צ\'אט, ' +
-      'לחצו לחיצה ארוכה על שדה הקלדה → הדבק. ' +
-      'אם הטקסט המלא מופיע — הניסוי הצליח. צלמו מסך ושלחו.'
-    );
-    container.appendChild(instr);
-
-    document.body.appendChild(container);
-
-    btn.addEventListener('click', function () {
-      const out = [];
-      out.push('=== O1 in-page button test ===');
-      out.push('Time: ' + new Date().toISOString());
-      out.push('UA: ' + navigator.userAgent);
-      out.push('Secure context: ' + window.isSecureContext);
-      out.push('clipboard API present: ' + !!(navigator.clipboard && navigator.clipboard.writeText));
-      out.push('');
-
-      // Method 1: execCommand on the visible textarea
-      let execResult = 'NOT-RUN';
-      let execError = '';
-      try {
-        ta.focus();
-        ta.select();
-        ta.setSelectionRange(0, ta.value.length);
-        execResult = document.execCommand('copy') ? 'TRUE' : 'FALSE';
-      } catch (e) {
-        execResult = 'THREW';
-        execError = String(e && (e.name + ': ' + e.message)) || String(e);
-      }
-      out.push('[Method 1] execCommand(copy) on visible textarea:');
-      out.push('  returned: ' + execResult);
-      if (execError) out.push('  error: ' + execError);
-      out.push('');
-
-      // Method 2: navigator.clipboard.writeText (sync-fire, log async result)
-      out.push('[Method 2] navigator.clipboard.writeText:');
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        try {
-          navigator.clipboard.writeText(SAMPLE).then(
-            function () {
-              result.textContent += '\n  [async] writeText RESOLVED ✓';
-            },
-            function (e) {
-              result.textContent += '\n  [async] writeText REJECTED: ' +
-                String(e && (e.name + ': ' + e.message));
-            }
-          );
-          out.push('  fired (waiting for async result…)');
-        } catch (e) {
-          out.push('  THREW synchronously: ' + String(e && (e.name + ': ' + e.message)));
-        }
-      } else {
-        out.push('  API not present');
-      }
-      out.push('');
-      out.push('>>> Now switch to WhatsApp + paste to verify what actually landed in clipboard.');
-
-      result.textContent = out.join('\n');
-    });
-  }
+    } else {
+      // Extremely rare given O1 proof, but defend anyway. The textarea
+      // is already visible + already populated; the user can long-press
+      // it and use the OS context menu to copy manually. Then re-tap.
+      btn.textContent = '⚠ ההעתקה האוטומטית נכשלה — בחר טקסט והדבק ידנית';
+      btn.style.background = '#dc3545';
+      btn.disabled = false;
+    }
+  });
 })();
