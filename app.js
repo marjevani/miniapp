@@ -102,16 +102,37 @@
   // ── Init Telegram chrome ───────────────────────────────────────────
   tg.ready();
   // 2026-06-05 UX change: respect the URL's `mode=compact` parameter
-  // instead of force-expanding to full height. Compact bottom-sheet
-  // keeps the primary button thumb-accessible.
+  // instead of force-expanding to full height.
   //
   // tg.expand();   ← retired; let compact mode stand
+
+  // 2026-06-05 UX (rev 3): compute the CSS-layout-vs-Telegram-visible
+  // viewport gap and expose it as `--tg-bottom-offset` so the fixed
+  // button (styled in index.html) sits at the bottom of the VISIBLE
+  // sheet, not the bottom of the layout (which is off-screen when
+  // Telegram is in compact mode).
   //
-  // The "button at viewport bottom" UX is now handled purely in CSS
-  // (position: fixed in index.html). Earlier attempts using flex +
-  // min-height: 100dvh + margin-top: auto didn't render reliably in
-  // Telegram's WebView — 100dvh can resolve to content height there,
-  // zeroing out the auto-margin. position: fixed is unconditional.
+  // Mechanism: position: fixed coordinates resolve against the layout
+  // viewport (full screen). In compact mode Telegram only shows the
+  // top portion. We compute the hidden bottom area and add it to the
+  // button's `bottom` via the CSS variable.
+  //
+  // Listens to:
+  //   - tg.onEvent('viewportChanged') — fires when sheet height changes
+  //     (compact ↔ expanded, keyboard appearance, etc.)
+  //   - window resize — orientation change, screen rotation
+  function syncBottomOffset() {
+    const layoutVH = document.documentElement.clientHeight
+                  || window.innerHeight || 0;
+    const tgVH = tg.viewportStableHeight || tg.viewportHeight || layoutVH;
+    const offset = Math.max(0, layoutVH - tgVH);
+    document.documentElement.style.setProperty(
+      '--tg-bottom-offset', offset + 'px'
+    );
+  }
+  syncBottomOffset();
+  try { tg.onEvent('viewportChanged', syncBottomOffset); } catch (e) {}
+  window.addEventListener('resize', syncBottomOffset);
 
   tg.BackButton.show();
   tg.BackButton.onClick(function () { tg.close(); });

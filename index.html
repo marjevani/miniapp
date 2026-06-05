@@ -132,17 +132,30 @@
      activation check for clipboard writes in Telegram Android WebView.
      A real in-page <button> click DOES create that activation. */
   .primary-btn {
-    /* 2026-06-05 UX (rev 2): position: fixed pins the button to the
-       viewport bottom regardless of any flex/min-height behavior in
-       the surrounding WebView. `env(safe-area-inset-bottom, 0px)`
-       respects iOS notch/home-indicator areas; the +14px gives a
-       comfortable visual gap above whichever boundary is the real
-       bottom. left/right=14px matches the container's horizontal
-       padding, so the button visually aligns with the card above
-       even though their layout systems differ.
-       z-index: 10 keeps it above the scrolling card content. */
+    /* 2026-06-05 UX (rev 3): position: fixed PLUS a JS-driven
+       offset for Telegram's compact-mode bottom-sheet.
+
+       Background: position: fixed resolves coordinates against the
+       CSS layout viewport (full screen height). Telegram in compact
+       mode shows only the TOP portion of that layout (the bottom-
+       sheet ~55-65% of screen). So `bottom: 14px` puts the button
+       at the bottom of the LAYOUT, which is OFF-SCREEN below the
+       visible compact sheet. Confirmed empirically by operator
+       2026-06-05: button visible only when sheet expanded.
+
+       Fix: app.js computes the gap between layout viewport height
+       (document.documentElement.clientHeight) and Telegram's reported
+       visible height (tg.viewportStableHeight), and sets it as a CSS
+       custom property `--tg-bottom-offset`. The button's `bottom` is
+       then offset by that gap PLUS the safe-area inset PLUS 14px.
+       In expanded mode, gap = 0 and behavior matches rev 2.
+       In compact mode, gap pushes the button up to sit at the
+       VISIBLE bottom of the sheet.
+
+       Default value 0px keeps the button visible if app.js fails
+       to run (graceful degradation to rev 2 behavior). */
     position: fixed;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    bottom: calc(var(--tg-bottom-offset, 0px) + env(safe-area-inset-bottom, 0px) + 14px);
     left: 14px;
     right: 14px;
     max-width: 612px;  /* 640px container max - 2 * 14px sides */
