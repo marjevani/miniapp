@@ -209,7 +209,13 @@
     });
 
     // Category options. value "" === אחר (stored NULL server-side).
-    const OPTIONS = [
+    // 2026-06-06: the authoritative list is served by the backend
+    // (draft_view → reason_options, sourced from common.reject_reasons)
+    // so adding/renaming a category is a one-file edit server-side and
+    // this page picks it up with no JS change. This hardcoded list is
+    // only a FALLBACK for an older cached page / a backend that didn't
+    // send options.
+    let OPTIONS = [
       { value: 'wrong_match',     label: '🎯 התאמה לא נכונה' },
       { value: 'wrong_product',   label: '📦 מוצר לא נכון' },
       { value: 'operator_choice', label: '👍 לא בעיה במערכת' },
@@ -251,7 +257,15 @@
         submitBtn.textContent = 'הטיוטה כבר לא במצב "נדחה"';
         return;
       }
-      if (body.reject_reason_code) { selected = body.reject_reason_code; renderRadios(); }
+      // Backend-driven category list (one source of truth). Falls back
+      // to the hardcoded OPTIONS above if the backend didn't send any.
+      if (Array.isArray(body.reason_options) && body.reason_options.length) {
+        OPTIONS = body.reason_options.map(function (o) {
+          return { value: o.code || '', label: o.label };
+        });
+      }
+      if (body.reject_reason_code) { selected = body.reject_reason_code; }
+      renderRadios();
       if (body.reject_reason_text) { textEl.value = body.reject_reason_text; }
     })
     .catch(function (e) {
