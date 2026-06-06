@@ -104,7 +104,9 @@
   }
 
   // ── Dispatch by mode ───────────────────────────────────────────────
-  if (mode === 'reason') { initReasonMode(); } else { initSendMode(); }
+  if (mode === 'reason') { initReasonMode(); }
+  else if (mode === 'edit') { initEditMode(); }
+  else { initSendMode(); }
 
 
   // ═══════════════════════════════════════════════════════════════════
@@ -325,6 +327,112 @@
       })
       .catch(function (e) {
         console.warn('reject_reason submit failed:', e);
+        submitBtn.textContent = '⚠ שגיאת רשת — נסה שוב';
+        submitBtn.style.background = '#dc3545';
+        submitBtn.disabled = false;
+      });
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EDIT MODE (2026-06-07) — edit the draft text in a box + Send. Replaces
+  // the reply→confirm flow with one Mini App interaction. start_param
+  // suffix `_edit`.
+  // ═══════════════════════════════════════════════════════════════════
+  function initEditMode() {
+    try { tg.expand(); } catch (e) {}
+
+    document.getElementById('send-form').hidden = true;
+    const reasonForm = document.getElementById('reason-form');
+    if (reasonForm) reasonForm.hidden = true;
+    document.getElementById('edit-form').hidden = false;
+
+    // Element refs FIRST (avoid the const TDZ the keyboard handlers below
+    // would otherwise hit — same bug class fixed in initReasonMode).
+    const container = document.querySelector('.container');
+    const textEl = document.getElementById('edit-text-input');
+    const submitBtn = document.getElementById('edit-submit-btn');
+
+    // Keyboard-lift: scroll the page up by the keyboard height so the
+    // textarea + Send stay visible (same approach as initReasonMode).
+    function keyboardHeight() {
+      const layoutVH = window.innerHeight || document.documentElement.clientHeight || 0;
+      const visibleVH = (window.visualViewport && window.visualViewport.height)
+                        || tg.viewportHeight || layoutVH;
+      return Math.max(0, layoutVH - visibleVH);
+    }
+    function liftAboveKeyboard() {
+      const kb = keyboardHeight();
+      if (kb <= 0) return;
+      if (container) container.style.paddingBottom = (kb + 24) + 'px';
+      const rect = submitBtn.getBoundingClientRect();
+      const target = (window.innerHeight || 0) - kb - 10;
+      const delta = rect.bottom - target;
+      if (delta > 0) window.scrollBy({ top: delta, behavior: 'smooth' });
+    }
+    textEl.addEventListener('focus', function () { setTimeout(liftAboveKeyboard, 350); });
+    textEl.addEventListener('blur', function () {
+      if (container) container.style.paddingBottom = '16px';
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () {
+        if (document.activeElement === textEl) liftAboveKeyboard();
+      });
+    }
+
+    // Load + pre-fill the current draft (prior edit if any, else original).
+    fetch(apiUrl + '/api/draft_view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(authBody()),
+    })
+    .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+    .then(function (x) {
+      const body = x.body || {};
+      if (x.status !== 200 || !body.ok) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'טעינה נכשלה — ' + (body.reason || 'error');
+        return;
+      }
+      textEl.value = body.edited_text || body.draft || '';
+      if (body.already_handled) {
+        textEl.disabled = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'הטיוטה כבר טופלה';
+      }
+    })
+    .catch(function (e) {
+      console.warn('draft_view (edit) failed:', e);
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'שגיאת רשת';
+    });
+
+    submitBtn.addEventListener('click', function () {
+      if (submitBtn.disabled) return;
+      const text = (textEl.value || '').trim();
+      if (!text) { textEl.focus(); return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ שולח…';
+      fetch(apiUrl + '/api/edit_send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(authBody({ edited_text: text })),
+      })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+      .then(function (x) {
+        const body = x.body || {};
+        if (x.status === 200 && body.ok) {
+          submitBtn.textContent = '✓ נשלח';
+          submitBtn.style.background = '#28a745';
+          setTimeout(function () { tg.close(); }, 250);
+        } else {
+          submitBtn.textContent = '⚠ נכשל — ' + (body.reason || x.status);
+          submitBtn.style.background = '#dc3545';
+          submitBtn.disabled = false;
+        }
+      })
+      .catch(function (e) {
+        console.warn('edit_send failed:', e);
         submitBtn.textContent = '⚠ שגיאת רשת — נסה שוב';
         submitBtn.style.background = '#dc3545';
         submitBtn.disabled = false;

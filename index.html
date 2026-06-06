@@ -205,7 +205,7 @@
      normal-height, full-width button in flow. app.js handles keyboard
      overlap by scrolling the page up (no position:fixed — that caused
      a black screen in the WebView). */
-  #reason-text-input {
+  #reason-text-input, #edit-text-input {
     width: 100%; box-sizing: border-box;
     min-height: 72px; max-height: 30vh;
     padding: 10px;
@@ -213,7 +213,9 @@
     background: var(--bg); color: var(--fg);
     font: inherit; line-height: 1.5; resize: none; direction: rtl;
   }
-  #reason-submit-btn {
+  /* Edit textarea gets more room (it holds the whole draft). */
+  #edit-text-input { min-height: 140px; max-height: 42vh; }
+  #reason-submit-btn, #edit-submit-btn {
     position: static;
     width: 100%; max-width: none; margin: 4px 0 8px;
     min-height: 0; padding: 15px;
@@ -256,6 +258,17 @@
       <textarea id="reason-text-input" dir="rtl" rows="3" placeholder="הסבר קצר…"></textarea>
     </div>
     <button id="reason-submit-btn" class="primary-btn">שמור סיבה</button>
+  </div>
+
+  <!-- ── EDIT MODE (2026-06-07) ── hidden unless the start_param carries
+       the `_edit` suffix; app.js reveals it. A textbox pre-filled with the
+       draft + a blue Send button — replaces the reply→confirm edit flow. -->
+  <div id="edit-form" hidden>
+    <div class="card">
+      <div class="card-label">עריכת הטיוטה</div>
+      <textarea id="edit-text-input" dir="rtl" rows="6" placeholder="טוען טיוטה…"></textarea>
+    </div>
+    <button id="edit-submit-btn" class="primary-btn">📤 שלח</button>
   </div>
 
   <noscript>
