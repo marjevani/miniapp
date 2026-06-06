@@ -1,53 +1,41 @@
-// fb-classifier Mini App — Phase 6 manual-send.
+// fb-classifier Mini App — Phase 6 manual-send + Phase 9 reject-reason.
 //
-// O2 architecture (2026-06-04, after O1 experiment):
+// TWO MODES, selected by the start_param suffix:
+//   <tenant>_<id>          → manual-send (Phase 6)
+//   <tenant>_<id>_reason   → reject-reason form (Phase 9, 2026-06-06)
 //
-//   In Telegram Android WebView, the asynchronous Clipboard API
-//   (`navigator.clipboard.writeText`) is blocked by a missing
-//   `RESOURCE_CLIPBOARD_WRITE` grant in DrKLO/Telegram's
-//   `BotWebViewContainer.onPermissionRequest`. Confirmed by direct
-//   source-code read (deep investigation 2026-06-04 evening).
+// ── Manual-send (Phase 6) O2 architecture ──────────────────────────
+//   In Telegram Android WebView the async Clipboard API is blocked
+//   (missing RESOURCE_CLIPBOARD_WRITE grant). The sync
+//   document.execCommand('copy') path works because it only needs a
+//   Chromium "transient activation" from a real in-page <button> click
+//   (MainButton's postMessage tap does NOT create that activation).
+//   So: draft is a visible <textarea>, primary action is an in-page
+//   <button>, click handler runs copy + sendBeacon + openLink + close
+//   synchronously inside the gesture context.
 //
-//   The synchronous `document.execCommand('copy')` path uses different
-//   plumbing — it requires only a Chromium "transient activation" on
-//   the page frame, not a permission grant. A real in-page <button>
-//   click creates that activation. Telegram's MainButton tap, which
-//   arrives via postMessage from the native UI, does NOT.
+// ── Reject-reason (Phase 9) ────────────────────────────────────────
+//   A simple form: radio category + free-text textarea + submit. Not
+//   time-critical (no clipboard gesture constraint), so submit uses
+//   fetch() with a VISIBLE success/error result. POSTs to
+//   /api/reject_reason which annotates the already-rejected approval.
 //
-//   Verified: Rami's Android device successfully pasted the full
-//   400-char Hebrew O1 test string into WhatsApp after tapping an
-//   in-page <button> + execCommand('copy') on a visible textarea.
-//
-// Architecture in this file:
-//   1. Draft display is a real <textarea readonly> (in index.html),
-//      visible to the user, styled to look like a card body. Lives
-//      in the DOM from page load.
-//   2. Primary action is an in-page <button id="send-btn">, NOT
-//      MainButton. MainButton is hidden.
-//   3. Button click handler runs inside the user-gesture context:
-//        a. Focus + select the textarea
-//        b. document.execCommand('copy')
-//        c. sendBeacon to /api/manual_send (status update, independent
-//           of clipboard outcome)
-//        d. tg.openLink(fb_url) + tg.close()
-//
-// SEC-24 hardening: this file is loaded via <script src> so the CSP
-// can drop `script-src 'unsafe-inline'`. All user-facing text goes
-// through textContent / textarea.value — never innerHTML.
+// SEC-24: this file is loaded via <script src> so the CSP can drop
+// `script-src 'unsafe-inline'`. All user text goes through
+// textContent / textarea.value / createElement — never innerHTML.
 
 (function () {
   'use strict';
 
-  // ── Safe DOM-text helpers (SEC-24) ─────────────────────────────────
+  // ── Safe DOM helpers (SEC-24) ──────────────────────────────────────
   function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
   function makeEl(tag, attrs, textContent) {
     const e = document.createElement(tag);
     if (attrs) {
       for (const k in attrs) {
         if (k === 'className') e.className = attrs[k];
-        else if (k === 'style') {
-          for (const sk in attrs.style) e.style[sk] = attrs.style[sk];
-        } else e.setAttribute(k, attrs[k]);
+        else if (k === 'style') { for (const sk in attrs.style) e.style[sk] = attrs.style[sk]; }
+        else e.setAttribute(k, attrs[k]);
       }
     }
     if (textContent !== undefined) e.textContent = String(textContent);
@@ -56,8 +44,7 @@
   function showError(msg) {
     clearChildren(document.body);
     const box = makeEl('div', { className: 'err-box' });
-    const lines = String(msg).split('\n');
-    lines.forEach(function (line, i) {
+    String(msg).split('\n').forEach(function (line, i) {
       if (i > 0) box.appendChild(makeEl('br'));
       box.appendChild(document.createTextNode(line));
     });
@@ -67,24 +54,23 @@
   // ── SDK guard ──────────────────────────────────────────────────────
   const tg = window.Telegram && window.Telegram.WebApp;
   if (!tg) {
-    showError('דף זה נועד להיפתח דרך טלגרם.\nחזור להתראה ולחץ על 📤 שלח ידנית.');
+    showError('דף זה נועד להיפתח דרך טלגרם.\nחזור להתראה ולחץ על הכפתור.');
     return;
   }
 
-  // ── Resolve approval context ───────────────────────────────────────
-  // Telegram surfaces the BotFather `?startapp=` value as
-  // tg.initDataUnsafe.start_param. Legacy fallback: ?tenant=&id=
-  // query string from pre-Sprint-E demo URLs.
-  let tenant = '', approvalId = '';
+  // ── Resolve approval context + MODE ────────────────────────────────
+  // start_param: <tenant>_<id> (send) or <tenant>_<id>_reason (reason).
+  let tenant = '', approvalId = '', mode = 'send';
   const startParam = (tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
   if (startParam) {
-    const m = startParam.match(/^([a-z0-9-]+)_(\d+)$/);
-    if (m) { tenant = m[1]; approvalId = m[2]; }
+    const m = startParam.match(/^([a-z0-9-]+)_(\d+)(?:_([a-z]+))?$/);
+    if (m) { tenant = m[1]; approvalId = m[2]; if (m[3]) mode = m[3]; }
   }
   if (!tenant || !approvalId) {
     const qs = new URLSearchParams(window.location.search);
     tenant = qs.get('tenant') || '';
     approvalId = qs.get('id') || '';
+    if (qs.get('mode2')) mode = qs.get('mode2');  // legacy/test override
   }
   if (!tenant || !approvalId) {
     showError('קישור לא תקין — חסרים פרטי טיוטה.\nחזור להתראה ופתח מחדש.');
@@ -94,154 +80,197 @@
   // ── API base URL ──────────────────────────────────────────────────
   const apiMeta = document.querySelector('meta[name=miniapp-api-url]');
   const apiUrl = apiMeta ? apiMeta.content.trim() : '';
-  if (!apiUrl) {
-    showError('תצורה חסרה (api-url). פנה למפתח.');
-    return;
-  }
+  if (!apiUrl) { showError('תצורה חסרה (api-url). פנה למפתח.'); return; }
 
-  // ── Init Telegram chrome ───────────────────────────────────────────
+  // ── Telegram chrome (shared) ───────────────────────────────────────
   tg.ready();
-  // 2026-06-05 UX change: respect the URL's `mode=compact` parameter
-  // instead of force-expanding to full height.
-  //
-  // tg.expand();   ← retired; let compact mode stand
-
-  // 2026-06-05 UX (rev 3): compute the CSS-layout-vs-Telegram-visible
-  // viewport gap and expose it as `--tg-bottom-offset` so the fixed
-  // button (styled in index.html) sits at the bottom of the VISIBLE
-  // sheet, not the bottom of the layout (which is off-screen when
-  // Telegram is in compact mode).
-  //
-  // Mechanism: position: fixed coordinates resolve against the layout
-  // viewport (full screen). In compact mode Telegram only shows the
-  // top portion. We compute the hidden bottom area and add it to the
-  // button's `bottom` via the CSS variable.
-  //
-  // Listens to:
-  //   - tg.onEvent('viewportChanged') — fires when sheet height changes
-  //     (compact ↔ expanded, keyboard appearance, etc.)
-  //   - window resize — orientation change, screen rotation
   function syncBottomOffset() {
-    const layoutVH = document.documentElement.clientHeight
-                  || window.innerHeight || 0;
+    const layoutVH = document.documentElement.clientHeight || window.innerHeight || 0;
     const tgVH = tg.viewportStableHeight || tg.viewportHeight || layoutVH;
-    const offset = Math.max(0, layoutVH - tgVH);
-    document.documentElement.style.setProperty(
-      '--tg-bottom-offset', offset + 'px'
-    );
+    document.documentElement.style.setProperty('--tg-bottom-offset', Math.max(0, layoutVH - tgVH) + 'px');
   }
   syncBottomOffset();
   try { tg.onEvent('viewportChanged', syncBottomOffset); } catch (e) {}
   window.addEventListener('resize', syncBottomOffset);
-
   tg.BackButton.show();
   tg.BackButton.onClick(function () { tg.close(); });
-  // O2: MainButton retired in favor of the in-page #send-btn. Hide it
-  // explicitly so any cached MainButton state from previous Mini Apps
-  // the user opened in this Telegram session doesn't leak into our UI.
   tg.MainButton.hide();
 
-  // ── Wire DOM refs ─────────────────────────────────────────────────
-  const ta = document.getElementById('draft-text-display');   // <textarea>
-  const btn = document.getElementById('send-btn');             // <button>
-  let fbUrl = '';
-  let isHandled = false;
+  // ── Shared auth body ───────────────────────────────────────────────
+  function authBody(extra) {
+    const b = { id: parseInt(approvalId, 10), tenant: tenant, _auth: tg.initData || '' };
+    if (extra) for (const k in extra) b[k] = extra[k];
+    return b;
+  }
 
-  // ── Fetch draft from backend ───────────────────────────────────────
-  fetch(apiUrl + '/api/draft_view', {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({
-      id: parseInt(approvalId, 10),
-      tenant: tenant,
-      _auth: tg.initData || '',
-    }),
-  })
-  .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
-  .then(function (x) {
-    const status = x.status, body = x.body;
-    if (status !== 200 || !body.ok) {
-      const reason = (body && body.reason) || 'unknown_error';
-      ta.value = 'טעינת הטיוטה נכשלה — ' + reason;
-      btn.style.display = 'none';
-      return;
-    }
-    ta.value = body.draft || '';
-    fbUrl = body.fb_url || '';
-    if (body.already_handled) {
-      ta.value += '\n\n⚠ הטיוטה כבר טופלה (' +
-        (body.decision || '?') + ') — הכפתור לא פעיל';
-      isHandled = true;
-      btn.style.display = 'none';
-      return;
-    }
-    btn.disabled = false;
-  })
-  .catch(function (e) {
-    console.warn('draft_view fetch failed:', e);
-    ta.value = 'שגיאת רשת בטעינת הטיוטה';
-    btn.style.display = 'none';
-  });
+  // ── Dispatch by mode ───────────────────────────────────────────────
+  if (mode === 'reason') { initReasonMode(); } else { initSendMode(); }
 
-  // ── Main action: in-page button click ──────────────────────────────
-  // CRITICAL: this entire handler runs synchronously inside the click
-  // event so the user-gesture / transient-activation context stays
-  // alive across:
-  //   1. document.execCommand('copy')    ← needs gesture activation
-  //   2. navigator.sendBeacon            ← does not need gesture, but
-  //                                        gets one anyway
-  //   3. tg.openLink                     ← does not need gesture
-  //   4. tg.close                        ← does not need gesture
-  //
-  // The order matters: copy MUST run first (before any async work)
-  // because awaiting anything (including a .then()) would tear down
-  // the activation context. We don't even await the sendBeacon.
-  btn.addEventListener('click', function () {
-    if (isHandled || btn.disabled) return;
 
-    // Visual feedback for the duration of the click.
-    btn.disabled = true;
-    btn.textContent = '⏳ מעתיק…';
+  // ═══════════════════════════════════════════════════════════════════
+  // MANUAL-SEND MODE (Phase 6) — preserved verbatim from the O2 design.
+  // ═══════════════════════════════════════════════════════════════════
+  function initSendMode() {
+    document.getElementById('send-form').hidden = false;
+    document.getElementById('reason-form').hidden = true;
 
-    // 1. Copy via execCommand on the visible textarea.
-    let copied = false;
-    try {
-      ta.focus();
-      ta.select();
-      ta.setSelectionRange(0, ta.value.length);
-      copied = document.execCommand('copy');
-    } catch (e) {
-      console.warn('execCommand threw:', e);
-    }
+    const ta = document.getElementById('draft-text-display');
+    const btn = document.getElementById('send-btn');
+    let fbUrl = '';
+    let isHandled = false;
 
-    // 2. Status update — independent of clipboard outcome.
-    try {
-      const payload = JSON.stringify({
-        id: parseInt(approvalId, 10),
-        tenant: tenant,
-        _auth: tg.initData || '',
-      });
-      const blob = new Blob([payload], { type: 'text/plain' });
-      const queued = navigator.sendBeacon(apiUrl + '/api/manual_send', blob);
-      if (!queued) console.warn('sendBeacon rejected by user-agent');
-    } catch (e) {
-      console.warn('sendBeacon threw:', e);
-    }
-
-    // 3. Branch on copy outcome.
-    if (copied) {
-      // Happy path: open FB + close Mini App. 200ms gives the postMessage
-      // chain time to reach the Telegram host before the WebView is torn
-      // down (matches Sprint E timing).
-      tg.openLink(fbUrl, { try_instant_view: false });
-      setTimeout(function () { tg.close(); }, 200);
-    } else {
-      // Extremely rare given O1 proof, but defend anyway. The textarea
-      // is already visible + already populated; the user can long-press
-      // it and use the OS context menu to copy manually. Then re-tap.
-      btn.textContent = '⚠ ההעתקה האוטומטית נכשלה — בחר טקסט והדבק ידנית';
-      btn.style.background = '#dc3545';
+    fetch(apiUrl + '/api/draft_view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(authBody()),
+    })
+    .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+    .then(function (x) {
+      const status = x.status, body = x.body;
+      if (status !== 200 || !body.ok) {
+        ta.value = 'טעינת הטיוטה נכשלה — ' + ((body && body.reason) || 'unknown_error');
+        btn.style.display = 'none';
+        return;
+      }
+      ta.value = body.draft || '';
+      fbUrl = body.fb_url || '';
+      if (body.already_handled) {
+        ta.value += '\n\n⚠ הטיוטה כבר טופלה (' + (body.decision || '?') + ') — הכפתור לא פעיל';
+        isHandled = true;
+        btn.style.display = 'none';
+        return;
+      }
       btn.disabled = false;
+    })
+    .catch(function (e) {
+      console.warn('draft_view fetch failed:', e);
+      ta.value = 'שגיאת רשת בטעינת הטיוטה';
+      btn.style.display = 'none';
+    });
+
+    btn.addEventListener('click', function () {
+      if (isHandled || btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ מעתיק…';
+      let copied = false;
+      try {
+        ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+        copied = document.execCommand('copy');
+      } catch (e) { console.warn('execCommand threw:', e); }
+      try {
+        const blob = new Blob([JSON.stringify(authBody())], { type: 'text/plain' });
+        if (!navigator.sendBeacon(apiUrl + '/api/manual_send', blob)) console.warn('sendBeacon rejected');
+      } catch (e) { console.warn('sendBeacon threw:', e); }
+      if (copied) {
+        tg.openLink(fbUrl, { try_instant_view: false });
+        setTimeout(function () { tg.close(); }, 200);
+      } else {
+        btn.textContent = '⚠ ההעתקה האוטומטית נכשלה — בחר טקסט והדבק ידנית';
+        btn.style.background = '#dc3545';
+        btn.disabled = false;
+      }
+    });
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════════
+  // REJECT-REASON MODE (Phase 9, 2026-06-06)
+  // ═══════════════════════════════════════════════════════════════════
+  function initReasonMode() {
+    document.getElementById('send-form').hidden = true;
+    const form = document.getElementById('reason-form');
+    form.hidden = false;
+    // Reason mode has more content than send mode; trim the big
+    // bottom padding (sized for the 170px send button) to the smaller
+    // reason submit.
+    const container = document.querySelector('.container');
+    if (container) container.style.paddingBottom = '90px';
+
+    const draftEl = document.getElementById('reason-draft-display');
+    const radiosEl = document.getElementById('reason-radios');
+    const textEl = document.getElementById('reason-text-input');
+    const submitBtn = document.getElementById('reason-submit-btn');
+
+    // Category options. value "" === אחר (stored NULL server-side).
+    const OPTIONS = [
+      { value: 'wrong_match',     label: 'התאמה לא נכונה' },
+      { value: 'wrong_product',   label: 'מוצר לא נכון' },
+      { value: 'operator_choice', label: 'לא בעיה במערכת' },
+      { value: '',                label: 'אחר' },
+    ];
+    let selected = '';  // default אחר
+
+    function renderRadios() {
+      clearChildren(radiosEl);
+      OPTIONS.forEach(function (opt) {
+        const row = makeEl('label', { className: 'reason-opt' + (opt.value === selected ? ' selected' : '') });
+        const radio = makeEl('input', { type: 'radio', name: 'reason' });
+        radio.checked = (opt.value === selected);
+        radio.addEventListener('change', function () { selected = opt.value; renderRadios(); });
+        row.appendChild(radio);
+        row.appendChild(makeEl('span', null, opt.label));
+        radiosEl.appendChild(row);
+      });
     }
-  });
+    renderRadios();
+
+    // Load current draft + pre-select existing category / free text.
+    fetch(apiUrl + '/api/draft_view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(authBody()),
+    })
+    .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+    .then(function (x) {
+      const body = x.body || {};
+      if (x.status !== 200 || !body.ok) {
+        draftEl.value = 'טעינה נכשלה — ' + (body.reason || 'unknown_error');
+        return;
+      }
+      draftEl.value = body.draft || '';
+      if (body.decision && body.decision !== 'rejected') {
+        // The draft isn't rejected (e.g. cancelled back to pending).
+        draftEl.value += '\n\n⚠ הטיוטה כבר לא במצב "נדחה" (' + body.decision + ')';
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'לא ניתן לשמור סיבה';
+        return;
+      }
+      if (body.reject_reason_code) { selected = body.reject_reason_code; renderRadios(); }
+      if (body.reject_reason_text) { textEl.value = body.reject_reason_text; }
+    })
+    .catch(function (e) {
+      console.warn('draft_view (reason) failed:', e);
+      draftEl.value = 'שגיאת רשת בטעינת הטיוטה';
+    });
+
+    submitBtn.addEventListener('click', function () {
+      if (submitBtn.disabled) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ שומר…';
+      fetch(apiUrl + '/api/reject_reason', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(authBody({ reason_code: selected, reason_text: textEl.value || '' })),
+      })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+      .then(function (x) {
+        const body = x.body || {};
+        if (x.status === 200 && body.ok) {
+          submitBtn.textContent = '✓ נשמר';
+          submitBtn.style.background = '#28a745';
+          setTimeout(function () { tg.close(); }, 600);
+        } else {
+          submitBtn.textContent = '⚠ שמירה נכשלה — ' + (body.reason || x.status);
+          submitBtn.style.background = '#dc3545';
+          submitBtn.disabled = false;
+        }
+      })
+      .catch(function (e) {
+        console.warn('reject_reason submit failed:', e);
+        submitBtn.textContent = '⚠ שגיאת רשת — נסה שוב';
+        submitBtn.style.background = '#dc3545';
+        submitBtn.disabled = false;
+      });
+    });
+  }
 })();

@@ -188,24 +188,66 @@
     border: 1px solid #f5c6cb; border-radius: 10px;
     padding: 16px; margin: 16px; text-align: center; font-size: 14px;
   }
+  /* Phase 9 (2026-06-06) reject-reason form. */
+  .reason-opt {
+    display: flex; align-items: center; gap: 10px;
+    padding: 13px 12px; margin-bottom: 7px;
+    border: 1px solid var(--border); border-radius: 10px;
+    cursor: pointer; font-size: 16px;
+  }
+  .reason-opt.selected {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .reason-opt input { margin: 0; width: 18px; height: 18px; flex: none; }
+  #reason-text-input {
+    width: 100%; min-height: 72px; padding: 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--fg);
+    font: inherit; line-height: 1.5; resize: vertical; direction: rtl;
+  }
+  /* The reason submit is bottom-pinned like the send button, but normal
+     height (the form already has plenty of content above it). Override
+     the 170px min-height the shared .primary-btn carries. */
+  #reason-submit-btn { min-height: 0; padding: 15px; }
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="card">
-    <div class="card-label">טיוטה לשליחה</div>
-    <!-- O2 (2026-06-04): draft display is a real <textarea> (not a div)
-         so app.js can document.execCommand('copy') on it after an
-         in-page button click. Styled via textarea.draft-text in
-         <style> above to look identical to the previous <div> body.
-         Static "loading" value so a JS-failure / CSP-block / cached-
-         broken-state never produces a blank screen. -->
-    <textarea class="draft-text" id="draft-text-display" readonly dir="rtl">טוען טיוטה…</textarea>
+  <!-- ── MANUAL-SEND MODE (Phase 6) ── shown by default; app.js hides
+       it in reason mode. -->
+  <div id="send-form">
+    <div class="card">
+      <div class="card-label">טיוטה לשליחה</div>
+      <!-- O2 (2026-06-04): draft display is a real <textarea> (not a div)
+           so app.js can document.execCommand('copy') on it after an
+           in-page button click. -->
+      <textarea class="draft-text" id="draft-text-display" readonly dir="rtl">טוען טיוטה…</textarea>
+    </div>
+    <!-- Primary action — in-page <button>, NOT MainButton. See app.js
+         for the gesture-activation rationale. -->
+    <button id="send-btn" class="primary-btn" disabled>📤 שלח ידנית</button>
   </div>
-  <!-- Primary action button — in-page <button>, NOT MainButton. See
-       app.js comment for the load-bearing gesture-activation rationale.
-       Initially disabled until the draft loads from the backend. -->
-  <button id="send-btn" class="primary-btn" disabled>📤 שלח ידנית</button>
+
+  <!-- ── REJECT-REASON MODE (Phase 9, 2026-06-06) ── hidden unless the
+       start_param carries the `_reason` suffix; app.js reveals it. -->
+  <div id="reason-form" hidden>
+    <div class="card">
+      <div class="card-label">הטיוטה שנדחתה</div>
+      <textarea class="draft-text" id="reason-draft-display" readonly dir="rtl">טוען…</textarea>
+    </div>
+    <div class="card">
+      <div class="card-label">סיבת דחייה</div>
+      <!-- Radio rows injected by app.js (SEC-24: createElement, no innerHTML). -->
+      <div id="reason-radios"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">הסבר חופשי (אופציונלי)</div>
+      <textarea id="reason-text-input" dir="rtl" rows="3" placeholder="הסבר קצר…"></textarea>
+    </div>
+    <button id="reason-submit-btn" class="primary-btn">שמור סיבה</button>
+  </div>
+
   <noscript>
     <div class="err-box">
       JavaScript נדרש לפעולת המיני־אפ.<br>
