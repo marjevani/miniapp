@@ -353,6 +353,13 @@
     const textEl = document.getElementById('edit-text-input');
     const submitBtn = document.getElementById('edit-submit-btn');
 
+    // Auto-open the keyboard for edit (operator request 2026-06-07): focus
+    // the textarea ASAP, while we're still close to the open gesture, so the
+    // keyboard pops without a tap. Re-asserted after the draft loads (with
+    // cursor at end). Best-effort — some platforms only open the keyboard on
+    // a real tap, but the box is always immediately editable.
+    try { textEl.focus(); } catch (e) {}
+
     // Keyboard-lift: scroll the page up by the keyboard height so the
     // textarea + Send stay visible (same approach as initReasonMode).
     function keyboardHeight() {
@@ -399,7 +406,13 @@
         textEl.disabled = true;
         submitBtn.disabled = true;
         submitBtn.textContent = 'הטיוטה כבר טופלה';
+        return;
       }
+      // Keep focus + put the cursor at the end so editing starts cleanly.
+      try {
+        textEl.focus();
+        textEl.setSelectionRange(textEl.value.length, textEl.value.length);
+      } catch (e) {}
     })
     .catch(function (e) {
       console.warn('draft_view (edit) failed:', e);

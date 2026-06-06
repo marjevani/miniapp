@@ -280,6 +280,9 @@
 </div>
 <!-- SEC-24: external script (defer for clean DOM-ready ordering).
      Inlined IIFE would require `script-src 'unsafe-inline'` — dropped 2026-06-04. -->
-<script src="app.js" defer></script>
+<!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
+     new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
+     caches index.html itself — "Clear Cache" forces the page too. -->
+<script src="app.js?v=20260607" defer></script>
 </body>
 </html>
