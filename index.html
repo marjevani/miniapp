@@ -200,38 +200,24 @@
     box-shadow: inset 0 0 0 1px var(--accent);
   }
   .reason-opt input { margin: 0; width: 18px; height: 18px; flex: none; }
-  /* Reject-reason composer (2026-06-06 rev): a FIXED bottom bar holding
-     the free-text input (top) + submit (bottom), riding just above the
-     soft keyboard via --kb-offset (set by app.js from visualViewport).
-     Stacking bottom→top: keyboard · submit · text · categories. No
-     scrollIntoView jump — the bar is always anchored to the visible
-     bottom, so typing never moves the controls. */
-  #reason-bottom-bar {
-    position: fixed;
-    left: 0; right: 0;
-    bottom: var(--kb-offset, 0px);
-    background: var(--bg);
-    border-top: 1px solid var(--border);
-    padding: 8px 14px calc(env(safe-area-inset-bottom, 0px) + 8px);
-    z-index: 20;
-  }
+  /* Reject-reason form — simple STATIC layout (2026-06-06). The free-
+     text input is a normal card textarea; the submit is a static,
+     normal-height, full-width button in flow. app.js handles keyboard
+     overlap by scrolling the page up (no position:fixed — that caused
+     a black screen in the WebView). */
   #reason-text-input {
     width: 100%; box-sizing: border-box;
-    min-height: 52px; max-height: 26vh;
-    padding: 10px; margin: 0 0 8px;
+    min-height: 72px; max-height: 30vh;
+    padding: 10px;
     border: 1px solid var(--border); border-radius: 8px;
-    background: var(--bg-sec); color: var(--fg);
+    background: var(--bg); color: var(--fg);
     font: inherit; line-height: 1.5; resize: none; direction: rtl;
   }
-  /* Submit lives INSIDE the fixed bar — static within it, full width,
-     normal height (override the shared .primary-btn fixed/170px). */
   #reason-submit-btn {
     position: static;
-    width: 100%; max-width: none; margin: 0;
-    min-height: 0; padding: 14px;
+    width: 100%; max-width: none; margin: 4px 0 8px;
+    min-height: 0; padding: 15px;
   }
-  /* Hide the categories while typing — more room, cleaner composer. */
-  #reason-form.kb-typing #reason-categories { display: none; }
 </style>
 </head>
 <body>
@@ -253,21 +239,23 @@
 
   <!-- ── REJECT-REASON MODE (Phase 9, 2026-06-06) ── hidden unless the
        start_param carries the `_reason` suffix; app.js reveals it. -->
-  <!-- 2026-06-06 (rev): layout, bottom→top = keyboard · submit · text ·
-       categories. The categories scroll above; the text+submit live in
-       a fixed bottom composer bar that rides above the keyboard. The
-       categories card hides while the textarea is focused (app.js adds
-       .kb-typing) for a clean, room-maximising composer view. -->
+  <!-- 2026-06-06 (rev — simple static): plain in-flow layout. Order
+       top→bottom = categories · text · submit. When the keyboard opens,
+       app.js scrolls the page up by the keyboard height so text+submit
+       sit just above the keyboard (categories scroll off the top —
+       acceptable per operator). NO position:fixed (that caused a black
+       screen in the WebView). -->
   <div id="reason-form" hidden>
-    <div id="reason-categories" class="card">
+    <div class="card">
       <div class="card-label">סיבת דחייה</div>
       <!-- Radio rows injected by app.js (SEC-24: createElement). -->
       <div id="reason-radios"></div>
     </div>
-    <div id="reason-bottom-bar">
-      <textarea id="reason-text-input" dir="rtl" rows="2" placeholder="הסבר קצר (אופציונלי)…"></textarea>
-      <button id="reason-submit-btn" class="primary-btn">שמור סיבה</button>
+    <div class="card">
+      <div class="card-label">הסבר חופשי (אופציונלי)</div>
+      <textarea id="reason-text-input" dir="rtl" rows="3" placeholder="הסבר קצר…"></textarea>
     </div>
+    <button id="reason-submit-btn" class="primary-btn">שמור סיבה</button>
   </div>
 
   <noscript>

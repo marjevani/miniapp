@@ -187,45 +187,49 @@
     document.getElementById('send-form').hidden = true;
     const form = document.getElementById('reason-form');
     form.hidden = false;
-    // Reserve bottom space for the fixed composer bar (text + submit)
-    // so the categories card scrolls clear of it when visible.
+    // 2026-06-06 (simple static approach): everything is in normal flow.
+    // When the keyboard opens, scroll the page up by the keyboard height
+    // so the textarea + submit sit just above the keyboard (categories
+    // scroll off the top — acceptable per operator). No position:fixed
+    // anywhere (that caused a black screen in the WebView).
     const container = document.querySelector('.container');
-    if (container) container.style.paddingBottom = '150px';
 
-    // 2026-06-06: pin the submit button above the soft keyboard. The
-    // keyboard covers the bottom of the screen; we compute how much
-    // (layout height − currently-visible height) and expose it as the
-    // CSS var --kb-offset, which the button's `bottom` adds. Result:
-    // the button rides just above the keyboard, tappable while typing.
-    // visualViewport is the reliable cross-platform signal (its height
-    // shrinks when the keyboard opens); fall back to tg.viewportHeight.
-    function syncKeyboardOffset() {
+    function keyboardHeight() {
       const layoutVH = window.innerHeight || document.documentElement.clientHeight || 0;
       const visibleVH = (window.visualViewport && window.visualViewport.height)
                         || tg.viewportHeight || layoutVH;
-      const gap = Math.max(0, layoutVH - visibleVH);
-      document.documentElement.style.setProperty('--kb-offset', gap + 'px');
+      return Math.max(0, layoutVH - visibleVH);  // dynamic per device
     }
-    syncKeyboardOffset();
+
+    function liftAboveKeyboard() {
+      const kb = keyboardHeight();
+      if (kb <= 0) return;  // keyboard not (yet) reported as covering
+      // Give the page enough scrollable room below the submit button…
+      if (container) container.style.paddingBottom = (kb + 24) + 'px';
+      // …then nudge so the submit's bottom sits just above the keyboard.
+      const rect = submitBtn.getBoundingClientRect();
+      const target = (window.innerHeight || 0) - kb - 10;
+      const delta = rect.bottom - target;
+      if (delta > 0) window.scrollBy({ top: delta, behavior: 'smooth' });
+    }
+
+    textEl.addEventListener('focus', function () {
+      // Wait for the keyboard animation + visualViewport to settle.
+      setTimeout(liftAboveKeyboard, 350);
+    });
+    textEl.addEventListener('blur', function () {
+      if (container) container.style.paddingBottom = '16px';
+    });
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', syncKeyboardOffset);
-      window.visualViewport.addEventListener('scroll', syncKeyboardOffset);
+      // Re-run if the keyboard height changes while typing.
+      window.visualViewport.addEventListener('resize', function () {
+        if (document.activeElement === textEl) liftAboveKeyboard();
+      });
     }
-    try { tg.onEvent('viewportChanged', syncKeyboardOffset); } catch (e) {}
 
     const radiosEl = document.getElementById('reason-radios');
     const textEl = document.getElementById('reason-text-input');
     const submitBtn = document.getElementById('reason-submit-btn');
-
-    // 2026-06-06 (rev): composer layout — text + submit live in a fixed
-    // bottom bar (#reason-bottom-bar) that rides above the keyboard via
-    // --kb-offset, so nothing jumps when the textarea is focused. We
-    // only toggle a `.kb-typing` class to HIDE the categories while
-    // typing (operator's spec: categories collapse once the textbox is
-    // clicked) — more room, cleaner. Restored on blur.
-    const formEl = document.getElementById('reason-form');
-    textEl.addEventListener('focus', function () { formEl.classList.add('kb-typing'); });
-    textEl.addEventListener('blur', function () { formEl.classList.remove('kb-typing'); });
 
     // Category options. value "" === אחר (stored NULL server-side).
     // 2026-06-06: the authoritative list is served by the backend
