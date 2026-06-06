@@ -212,7 +212,7 @@
     const OPTIONS = [
       { value: 'wrong_match',     label: '🎯 התאמה לא נכונה' },
       { value: 'wrong_product',   label: '📦 מוצר לא נכון' },
-      { value: 'operator_choice', label: '🤷 לא בעיה במערכת' },
+      { value: 'operator_choice', label: '👍 לא בעיה במערכת' },
       { value: '',                label: '❓ אחר' },
     ];
     let selected = '';  // default אחר
