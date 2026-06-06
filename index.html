@@ -206,10 +206,17 @@
     background: var(--bg); color: var(--fg);
     font: inherit; line-height: 1.5; resize: vertical; direction: rtl;
   }
-  /* The reason submit is bottom-pinned like the send button, but normal
-     height (the form already has plenty of content above it). Override
-     the 170px min-height the shared .primary-btn carries. */
-  #reason-submit-btn { min-height: 0; padding: 15px; }
+  /* 2026-06-06: the reason submit is STATIC (not position: fixed) — it
+     flows at the end of the form so the page scrolls naturally and the
+     soft keyboard doesn't cover a fixed element / the textarea. Normal
+     height too (override the 170px the shared .primary-btn carries). */
+  #reason-submit-btn {
+    position: static;
+    min-height: 0;
+    padding: 15px;
+    margin-top: 4px;
+    margin-bottom: 8px;
+  }
 </style>
 </head>
 <body>

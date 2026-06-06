@@ -187,23 +187,34 @@
     document.getElementById('send-form').hidden = true;
     const form = document.getElementById('reason-form');
     form.hidden = false;
-    // Reason mode has more content than send mode; trim the big
-    // bottom padding (sized for the 170px send button) to the smaller
-    // reason submit.
+    // Reason mode's submit is static (in-flow), so drop the big bottom
+    // padding that the send mode reserves for its fixed 170px button.
     const container = document.querySelector('.container');
-    if (container) container.style.paddingBottom = '90px';
+    if (container) container.style.paddingBottom = '16px';
 
     const draftEl = document.getElementById('reason-draft-display');
     const radiosEl = document.getElementById('reason-radios');
     const textEl = document.getElementById('reason-text-input');
     const submitBtn = document.getElementById('reason-submit-btn');
 
+    // 2026-06-06: the soft keyboard was covering the textarea + the
+    // (formerly fixed) submit button. Two fixes: (a) the submit button
+    // is static in reason mode (CSS #reason-submit-btn — flows at the
+    // end of the form, so the page scrolls instead of a fixed element
+    // fighting the keyboard); (b) on focus, scroll the textarea into
+    // the centre of the visible area above the keyboard.
+    textEl.addEventListener('focus', function () {
+      setTimeout(function () {
+        try { textEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+      }, 300);
+    });
+
     // Category options. value "" === אחר (stored NULL server-side).
     const OPTIONS = [
-      { value: 'wrong_match',     label: 'התאמה לא נכונה' },
-      { value: 'wrong_product',   label: 'מוצר לא נכון' },
-      { value: 'operator_choice', label: 'לא בעיה במערכת' },
-      { value: '',                label: 'אחר' },
+      { value: 'wrong_match',     label: '🎯 התאמה לא נכונה' },
+      { value: 'wrong_product',   label: '📦 מוצר לא נכון' },
+      { value: 'operator_choice', label: '🙋 לא בעיה במערכת' },
+      { value: '',                label: '❓ אחר' },
     ];
     let selected = '';  // default אחר
 
@@ -265,7 +276,7 @@
         if (x.status === 200 && body.ok) {
           submitBtn.textContent = '✓ נשמר';
           submitBtn.style.background = '#28a745';
-          setTimeout(function () { tg.close(); }, 600);
+          setTimeout(function () { tg.close(); }, 250);
         } else {
           submitBtn.textContent = '⚠ שמירה נכשלה — ' + (body.reason || x.status);
           submitBtn.style.background = '#dc3545';
