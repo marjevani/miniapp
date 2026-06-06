@@ -187,13 +187,21 @@
     document.getElementById('send-form').hidden = true;
     const form = document.getElementById('reason-form');
     form.hidden = false;
+
+    // Element refs FIRST (these must exist before the keyboard handlers
+    // below reference them — declaring them after would hit the const
+    // temporal-dead-zone and abort initReasonMode: empty radios + dead
+    // submit, the 2026-06-06 bug).
+    const container = document.querySelector('.container');
+    const radiosEl = document.getElementById('reason-radios');
+    const textEl = document.getElementById('reason-text-input');
+    const submitBtn = document.getElementById('reason-submit-btn');
+
     // 2026-06-06 (simple static approach): everything is in normal flow.
     // When the keyboard opens, scroll the page up by the keyboard height
     // so the textarea + submit sit just above the keyboard (categories
     // scroll off the top — acceptable per operator). No position:fixed
     // anywhere (that caused a black screen in the WebView).
-    const container = document.querySelector('.container');
-
     function keyboardHeight() {
       const layoutVH = window.innerHeight || document.documentElement.clientHeight || 0;
       const visibleVH = (window.visualViewport && window.visualViewport.height)
@@ -226,10 +234,6 @@
         if (document.activeElement === textEl) liftAboveKeyboard();
       });
     }
-
-    const radiosEl = document.getElementById('reason-radios');
-    const textEl = document.getElementById('reason-text-input');
-    const submitBtn = document.getElementById('reason-submit-btn');
 
     // Category options. value "" === אחר (stored NULL server-side).
     // 2026-06-06: the authoritative list is served by the backend
