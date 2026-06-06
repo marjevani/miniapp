@@ -354,11 +354,17 @@
     const submitBtn = document.getElementById('edit-submit-btn');
 
     // Auto-open the keyboard for edit (operator request 2026-06-07): focus
-    // the textarea ASAP, while we're still close to the open gesture, so the
-    // keyboard pops without a tap. Re-asserted after the draft loads (with
-    // cursor at end). Best-effort — some platforms only open the keyboard on
-    // a real tap, but the box is always immediately editable.
-    try { textEl.focus(); } catch (e) {}
+    // the textarea, cursor at end. A focus() fired too early (before the
+    // Mini App's open animation + viewport settle) is ignored by some
+    // Android WebViews, so we retry on a short ramp. iOS may still require
+    // one tap — programmatic keyboard-open without a gesture is blocked
+    // there by the platform — but the box is always immediately editable.
+    function focusEnd() {
+      try {
+        textEl.focus();
+        textEl.setSelectionRange(textEl.value.length, textEl.value.length);
+      } catch (e) {}
+    }
 
     // Keyboard-lift: scroll the page up by the keyboard height so the
     // textarea + Send stay visible (same approach as initReasonMode).
@@ -387,6 +393,11 @@
       });
     }
 
+    // Focus immediately (empty box) so the keyboard starts opening without
+    // waiting on the network; the fetch below fills the value + re-focuses
+    // with the cursor at the end.
+    focusEnd();
+
     // Load + pre-fill the current draft (prior edit if any, else original).
     fetch(apiUrl + '/api/draft_view', {
       method: 'POST',
@@ -408,11 +419,11 @@
         submitBtn.textContent = 'הטיוטה כבר טופלה';
         return;
       }
-      // Keep focus + put the cursor at the end so editing starts cleanly.
-      try {
-        textEl.focus();
-        textEl.setSelectionRange(textEl.value.length, textEl.value.length);
-      } catch (e) {}
+      // Focus once the draft is in, then retry on a short ramp to beat the
+      // open-animation / viewport-settle window that swallows an early focus.
+      focusEnd();
+      setTimeout(focusEnd, 150);
+      setTimeout(focusEnd, 400);
     })
     .catch(function (e) {
       console.warn('draft_view (edit) failed:', e);
