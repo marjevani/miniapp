@@ -177,6 +177,13 @@
   // REJECT-REASON MODE (Phase 9, 2026-06-06)
   // ═══════════════════════════════════════════════════════════════════
   function initReasonMode() {
+    // 2026-06-06: the reason form has more content than manual-send
+    // (radios + textarea + submit), so open EXPANDED (full height)
+    // instead of the compact bottom-sheet. This also gives the
+    // textarea real room — the cramped compact sheet was likely why
+    // typed text wasn't reliably captured. Manual-send stays compact.
+    try { tg.expand(); } catch (e) {}
+
     document.getElementById('send-form').hidden = true;
     const form = document.getElementById('reason-form');
     form.hidden = false;
