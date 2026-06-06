@@ -107,11 +107,14 @@
      stays visible in compact-mode (the bottom-sheet viewport is
      ~55-65vh on most phones). Long drafts scroll internally inside
      the textarea instead of pushing the button off-screen. User can
-     swipe up to expand the Mini App if they want a fuller view. */
+     swipe up to expand the Mini App if they want a fuller view.
+     2026-06-07: grown ~2 rows taller (min 80→126, max 32vh→40vh) per
+     operator request — still scrolls internally + the button is fixed,
+     so the taller box doesn't push it off-screen. */
   textarea.draft-text {
     width: 100%;
-    min-height: 80px;
-    max-height: 32vh;
+    min-height: 126px;
+    max-height: 40vh;
     padding: 0;
     margin: 0;
     border: none;
@@ -214,7 +217,10 @@
     font: inherit; line-height: 1.5; resize: none; direction: rtl;
   }
   /* Edit textarea gets more room (it holds the whole draft). */
-  #edit-text-input { min-height: 140px; max-height: 42vh; }
+  /* 2026-06-07: grown ~2 rows taller (min 140→186, max 42vh→50vh) per
+     operator request. Edit mode runs expanded (tg.expand), so there's
+     room; the box grows downward, submit stays below it in flow. */
+  #edit-text-input { min-height: 186px; max-height: 50vh; }
   #reason-submit-btn, #edit-submit-btn {
     position: static;
     width: 100%; max-width: none; margin: 4px 0 8px;
@@ -266,7 +272,7 @@
   <div id="edit-form" hidden>
     <div class="card">
       <div class="card-label">עריכת הטיוטה</div>
-      <textarea id="edit-text-input" dir="rtl" rows="6" placeholder="טוען טיוטה…"></textarea>
+      <textarea id="edit-text-input" dir="rtl" rows="8" placeholder="טוען טיוטה…"></textarea>
     </div>
     <button id="edit-submit-btn" class="primary-btn">📤 שלח</button>
   </div>
@@ -283,6 +289,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20260607b" defer></script>
+<script src="app.js?v=20260607c" defer></script>
 </body>
 </html>
