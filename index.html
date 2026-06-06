@@ -206,16 +206,23 @@
     background: var(--bg); color: var(--fg);
     font: inherit; line-height: 1.5; resize: vertical; direction: rtl;
   }
-  /* 2026-06-06: the reason submit is STATIC (not position: fixed) — it
-     flows at the end of the form so the page scrolls naturally and the
-     soft keyboard doesn't cover a fixed element / the textarea. Normal
-     height too (override the 170px the shared .primary-btn carries). */
+  /* 2026-06-06 (rev): the reason submit is PINNED above the soft
+     keyboard so it's tappable while typing — no need to close the
+     keyboard or scroll. `--kb-offset` (set by app.js from
+     visualViewport) is the height the keyboard currently covers; when
+     the keyboard is closed it's 0 and the button sits at the bottom.
+     z-index keeps it above the scrolling form. Normal height (override
+     the 170px the shared .primary-btn carries). */
   #reason-submit-btn {
-    position: static;
+    position: fixed;
+    left: 14px;
+    right: 14px;
+    max-width: 612px;
+    margin: 0 auto;
+    bottom: calc(var(--kb-offset, 0px) + env(safe-area-inset-bottom, 0px) + 8px);
     min-height: 0;
     padding: 15px;
-    margin-top: 4px;
-    margin-bottom: 8px;
+    z-index: 20;
   }
 </style>
 </head>

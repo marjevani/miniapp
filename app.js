@@ -187,10 +187,31 @@
     document.getElementById('send-form').hidden = true;
     const form = document.getElementById('reason-form');
     form.hidden = false;
-    // Reason mode's submit is static (in-flow), so drop the big bottom
-    // padding that the send mode reserves for its fixed 170px button.
+    // Reserve bottom space for the fixed submit button so the textarea
+    // (last content) can scroll clear of it.
     const container = document.querySelector('.container');
-    if (container) container.style.paddingBottom = '16px';
+    if (container) container.style.paddingBottom = '88px';
+
+    // 2026-06-06: pin the submit button above the soft keyboard. The
+    // keyboard covers the bottom of the screen; we compute how much
+    // (layout height − currently-visible height) and expose it as the
+    // CSS var --kb-offset, which the button's `bottom` adds. Result:
+    // the button rides just above the keyboard, tappable while typing.
+    // visualViewport is the reliable cross-platform signal (its height
+    // shrinks when the keyboard opens); fall back to tg.viewportHeight.
+    function syncKeyboardOffset() {
+      const layoutVH = window.innerHeight || document.documentElement.clientHeight || 0;
+      const visibleVH = (window.visualViewport && window.visualViewport.height)
+                        || tg.viewportHeight || layoutVH;
+      const gap = Math.max(0, layoutVH - visibleVH);
+      document.documentElement.style.setProperty('--kb-offset', gap + 'px');
+    }
+    syncKeyboardOffset();
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', syncKeyboardOffset);
+      window.visualViewport.addEventListener('scroll', syncKeyboardOffset);
+    }
+    try { tg.onEvent('viewportChanged', syncKeyboardOffset); } catch (e) {}
 
     const radiosEl = document.getElementById('reason-radios');
     const textEl = document.getElementById('reason-text-input');
