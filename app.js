@@ -187,10 +187,10 @@
     document.getElementById('send-form').hidden = true;
     const form = document.getElementById('reason-form');
     form.hidden = false;
-    // Reserve bottom space for the fixed submit button so the textarea
-    // (last content) can scroll clear of it.
+    // Reserve bottom space for the fixed composer bar (text + submit)
+    // so the categories card scrolls clear of it when visible.
     const container = document.querySelector('.container');
-    if (container) container.style.paddingBottom = '88px';
+    if (container) container.style.paddingBottom = '150px';
 
     // 2026-06-06: pin the submit button above the soft keyboard. The
     // keyboard covers the bottom of the screen; we compute how much
@@ -217,17 +217,15 @@
     const textEl = document.getElementById('reason-text-input');
     const submitBtn = document.getElementById('reason-submit-btn');
 
-    // 2026-06-06: the soft keyboard was covering the textarea + the
-    // (formerly fixed) submit button. Two fixes: (a) the submit button
-    // is static in reason mode (CSS #reason-submit-btn — flows at the
-    // end of the form, so the page scrolls instead of a fixed element
-    // fighting the keyboard); (b) on focus, scroll the textarea into
-    // the centre of the visible area above the keyboard.
-    textEl.addEventListener('focus', function () {
-      setTimeout(function () {
-        try { textEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
-      }, 300);
-    });
+    // 2026-06-06 (rev): composer layout — text + submit live in a fixed
+    // bottom bar (#reason-bottom-bar) that rides above the keyboard via
+    // --kb-offset, so nothing jumps when the textarea is focused. We
+    // only toggle a `.kb-typing` class to HIDE the categories while
+    // typing (operator's spec: categories collapse once the textbox is
+    // clicked) — more room, cleaner. Restored on blur.
+    const formEl = document.getElementById('reason-form');
+    textEl.addEventListener('focus', function () { formEl.classList.add('kb-typing'); });
+    textEl.addEventListener('blur', function () { formEl.classList.remove('kb-typing'); });
 
     // Category options. value "" === אחר (stored NULL server-side).
     // 2026-06-06: the authoritative list is served by the backend

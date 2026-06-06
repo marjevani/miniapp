@@ -200,30 +200,38 @@
     box-shadow: inset 0 0 0 1px var(--accent);
   }
   .reason-opt input { margin: 0; width: 18px; height: 18px; flex: none; }
-  #reason-text-input {
-    width: 100%; min-height: 72px; padding: 10px;
-    border: 1px solid var(--border); border-radius: 8px;
-    background: var(--bg); color: var(--fg);
-    font: inherit; line-height: 1.5; resize: vertical; direction: rtl;
-  }
-  /* 2026-06-06 (rev): the reason submit is PINNED above the soft
-     keyboard so it's tappable while typing — no need to close the
-     keyboard or scroll. `--kb-offset` (set by app.js from
-     visualViewport) is the height the keyboard currently covers; when
-     the keyboard is closed it's 0 and the button sits at the bottom.
-     z-index keeps it above the scrolling form. Normal height (override
-     the 170px the shared .primary-btn carries). */
-  #reason-submit-btn {
+  /* Reject-reason composer (2026-06-06 rev): a FIXED bottom bar holding
+     the free-text input (top) + submit (bottom), riding just above the
+     soft keyboard via --kb-offset (set by app.js from visualViewport).
+     Stacking bottom→top: keyboard · submit · text · categories. No
+     scrollIntoView jump — the bar is always anchored to the visible
+     bottom, so typing never moves the controls. */
+  #reason-bottom-bar {
     position: fixed;
-    left: 14px;
-    right: 14px;
-    max-width: 612px;
-    margin: 0 auto;
-    bottom: calc(var(--kb-offset, 0px) + env(safe-area-inset-bottom, 0px) + 8px);
-    min-height: 0;
-    padding: 15px;
+    left: 0; right: 0;
+    bottom: var(--kb-offset, 0px);
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 8px 14px calc(env(safe-area-inset-bottom, 0px) + 8px);
     z-index: 20;
   }
+  #reason-text-input {
+    width: 100%; box-sizing: border-box;
+    min-height: 52px; max-height: 26vh;
+    padding: 10px; margin: 0 0 8px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg-sec); color: var(--fg);
+    font: inherit; line-height: 1.5; resize: none; direction: rtl;
+  }
+  /* Submit lives INSIDE the fixed bar — static within it, full width,
+     normal height (override the shared .primary-btn fixed/170px). */
+  #reason-submit-btn {
+    position: static;
+    width: 100%; max-width: none; margin: 0;
+    min-height: 0; padding: 14px;
+  }
+  /* Hide the categories while typing — more room, cleaner composer. */
+  #reason-form.kb-typing #reason-categories { display: none; }
 </style>
 </head>
 <body>
@@ -245,20 +253,21 @@
 
   <!-- ── REJECT-REASON MODE (Phase 9, 2026-06-06) ── hidden unless the
        start_param carries the `_reason` suffix; app.js reveals it. -->
+  <!-- 2026-06-06 (rev): layout, bottom→top = keyboard · submit · text ·
+       categories. The categories scroll above; the text+submit live in
+       a fixed bottom composer bar that rides above the keyboard. The
+       categories card hides while the textarea is focused (app.js adds
+       .kb-typing) for a clean, room-maximising composer view. -->
   <div id="reason-form" hidden>
-    <!-- 2026-06-06: the 'טיוטה שנדחתה' draft-preview card was removed —
-         not needed (the operator came from that draft) and it pushed
-         the textarea down into the soft-keyboard zone. -->
-    <div class="card">
+    <div id="reason-categories" class="card">
       <div class="card-label">סיבת דחייה</div>
-      <!-- Radio rows injected by app.js (SEC-24: createElement, no innerHTML). -->
+      <!-- Radio rows injected by app.js (SEC-24: createElement). -->
       <div id="reason-radios"></div>
     </div>
-    <div class="card">
-      <div class="card-label">הסבר חופשי (אופציונלי)</div>
-      <textarea id="reason-text-input" dir="rtl" rows="3" placeholder="הסבר קצר…"></textarea>
+    <div id="reason-bottom-bar">
+      <textarea id="reason-text-input" dir="rtl" rows="2" placeholder="הסבר קצר (אופציונלי)…"></textarea>
+      <button id="reason-submit-btn" class="primary-btn">שמור סיבה</button>
     </div>
-    <button id="reason-submit-btn" class="primary-btn">שמור סיבה</button>
   </div>
 
   <noscript>
