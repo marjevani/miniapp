@@ -192,7 +192,6 @@
     const container = document.querySelector('.container');
     if (container) container.style.paddingBottom = '16px';
 
-    const draftEl = document.getElementById('reason-draft-display');
     const radiosEl = document.getElementById('reason-radios');
     const textEl = document.getElementById('reason-text-input');
     const submitBtn = document.getElementById('reason-submit-btn');
@@ -213,7 +212,7 @@
     const OPTIONS = [
       { value: 'wrong_match',     label: '🎯 התאמה לא נכונה' },
       { value: 'wrong_product',   label: '📦 מוצר לא נכון' },
-      { value: 'operator_choice', label: '🙋 לא בעיה במערכת' },
+      { value: 'operator_choice', label: '🤷 לא בעיה במערכת' },
       { value: '',                label: '❓ אחר' },
     ];
     let selected = '';  // default אחר
@@ -242,15 +241,14 @@
     .then(function (x) {
       const body = x.body || {};
       if (x.status !== 200 || !body.ok) {
-        draftEl.value = 'טעינה נכשלה — ' + (body.reason || 'unknown_error');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'טעינה נכשלה — ' + (body.reason || 'error');
         return;
       }
-      draftEl.value = body.draft || '';
       if (body.decision && body.decision !== 'rejected') {
         // The draft isn't rejected (e.g. cancelled back to pending).
-        draftEl.value += '\n\n⚠ הטיוטה כבר לא במצב "נדחה" (' + body.decision + ')';
         submitBtn.disabled = true;
-        submitBtn.textContent = 'לא ניתן לשמור סיבה';
+        submitBtn.textContent = 'הטיוטה כבר לא במצב "נדחה"';
         return;
       }
       if (body.reject_reason_code) { selected = body.reject_reason_code; renderRadios(); }
@@ -258,7 +256,8 @@
     })
     .catch(function (e) {
       console.warn('draft_view (reason) failed:', e);
-      draftEl.value = 'שגיאת רשת בטעינת הטיוטה';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'שגיאת רשת';
     });
 
     submitBtn.addEventListener('click', function () {

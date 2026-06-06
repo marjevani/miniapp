@@ -239,10 +239,9 @@
   <!-- ── REJECT-REASON MODE (Phase 9, 2026-06-06) ── hidden unless the
        start_param carries the `_reason` suffix; app.js reveals it. -->
   <div id="reason-form" hidden>
-    <div class="card">
-      <div class="card-label">הטיוטה שנדחתה</div>
-      <textarea class="draft-text" id="reason-draft-display" readonly dir="rtl">טוען…</textarea>
-    </div>
+    <!-- 2026-06-06: the 'טיוטה שנדחתה' draft-preview card was removed —
+         not needed (the operator came from that draft) and it pushed
+         the textarea down into the soft-keyboard zone. -->
     <div class="card">
       <div class="card-label">סיבת דחייה</div>
       <!-- Radio rows injected by app.js (SEC-24: createElement, no innerHTML). -->
