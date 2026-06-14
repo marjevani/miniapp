@@ -159,18 +159,42 @@
         ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
         copied = document.execCommand('copy');
       } catch (e) { console.warn('execCommand threw:', e); }
-      try {
-        const blob = new Blob([JSON.stringify(authBody())], { type: 'text/plain' });
-        if (!navigator.sendBeacon(apiUrl + '/api/manual_send', blob)) console.warn('sendBeacon rejected');
-      } catch (e) { console.warn('sendBeacon threw:', e); }
+      // Open FB NOW, inside the click gesture (Desktop blocks openLink after
+      // an await); only when the copy worked — otherwise the operator pastes
+      // manually from the textarea.
       if (copied) {
         tg.openLink(fbUrl, { try_instant_view: false });
-        setTimeout(function () { tg.close(); }, 200);
+        btn.textContent = '⏳ שולח…';
       } else {
         btn.textContent = '⚠ ההעתקה האוטומטית נכשלה — בחר טקסט והדבק ידנית';
         btn.style.background = '#dc3545';
         btn.disabled = false;
       }
+      // Commit the manual-send. Was navigator.sendBeacon(...) fired the instant
+      // before tg.close() — UNRELIABLE on Telegram Desktop: the POST was dropped
+      // on webview teardown (amplified by VPN latency), so the backend never
+      // recorded the send and the message never updated (2026-06-14). Fix: a
+      // keepalive fetch (survives teardown) + close ONLY after it settles, with
+      // a 2.5s fallback so a slow VPN can never hang the view.
+      var settled = false;
+      function onSettle() {
+        if (settled) return;
+        settled = true;
+        if (copied) setTimeout(function () { tg.close(); }, 100);
+      }
+      try {
+        fetch(apiUrl + '/api/manual_send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(authBody()),
+          keepalive: true,
+        }).catch(function (e) { console.warn('manual_send POST failed:', e); })
+          .finally(onSettle);
+      } catch (e) {
+        console.warn('manual_send fetch threw:', e);
+        onSettle();
+      }
+      setTimeout(onSettle, 2500);  // fallback close — never hang on a slow VPN
     });
   }
 
