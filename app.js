@@ -11,8 +11,9 @@
 //   Chromium "transient activation" from a real in-page <button> click
 //   (MainButton's postMessage tap does NOT create that activation).
 //   So: draft is a visible <textarea>, primary action is an in-page
-//   <button>, click handler runs copy + sendBeacon + openLink + close
-//   synchronously inside the gesture context.
+//   <button>; its click handler runs copy + openLink synchronously inside
+//   the gesture, then a keepalive fetch (manual_send) and closes once it
+//   settles (sendBeacon-at-close was dropped on Telegram Desktop — 2026-06-14).
 //
 // ── Reject-reason (Phase 9) ────────────────────────────────────────
 //   A simple form: radio category + free-text textarea + submit. Not
