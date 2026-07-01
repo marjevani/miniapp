@@ -15,11 +15,17 @@
 //   the gesture, then a keepalive fetch (manual_send) and closes once it
 //   settles (sendBeacon-at-close was dropped on Telegram Desktop — 2026-06-14).
 //
-// ── Reject-reason (Phase 9) ────────────────────────────────────────
+// ── Reject-reason (Phase 9, extended Phase 10 2026-07-01) ──────────
 //   A simple form: radio category + free-text textarea + submit. Not
 //   time-critical (no clipboard gesture constraint), so submit uses
 //   fetch() with a VISIBLE success/error result. POSTs to
-//   /api/reject_reason which annotates the already-rejected approval.
+//   /api/reject_reason.
+//   Phase 10: the ❌ דחה - שגוי (wrong-match) draft button opens this
+//   form on a PENDING draft — submitting COMMITS the reject there
+//   (pending → rejected + code + text). It still serves the Phase-9
+//   annotate case (an already-rejected row from an old keyboard).
+//   operator_choice ("לא בעיה במערכת") is no longer a category here —
+//   it's the dedicated 👍 דחה - תקין button (committed via callback).
 //
 // SEC-24: this file is loaded via <script src> so the CSP can drop
 // `script-src 'unsafe-inline'`. All user text goes through
@@ -272,7 +278,6 @@
     let OPTIONS = [
       { value: 'wrong_match',     label: '🎯 התאמה לא נכונה' },
       { value: 'wrong_product',   label: '📦 מוצר לא נכון' },
-      { value: 'operator_choice', label: '👍 לא בעיה במערכת' },
       { value: '',                label: '❓ אחר' },
     ];
     let selected = '';  // default אחר
@@ -305,10 +310,15 @@
         submitBtn.textContent = 'טעינה נכשלה — ' + (body.reason || 'error');
         return;
       }
-      if (body.decision && body.decision !== 'rejected') {
-        // The draft isn't rejected (e.g. cancelled back to pending).
+      // Phase 10 (2026-07-01): the reason form now serves TWO states —
+      //   • a PENDING draft (the ❌ דחה - שגוי wrong-match button opens
+      //     this form on a live draft; submitting COMMITS the reject), and
+      //   • an already-REJECTED draft (Phase-9 back-compat annotate).
+      // Any other (terminal) state means it was actioned elsewhere.
+      var ALLOWED = ['pending', 'edit_pending', 'edit_review', 'rejected'];
+      if (body.decision && ALLOWED.indexOf(body.decision) === -1) {
         submitBtn.disabled = true;
-        submitBtn.textContent = 'הטיוטה כבר לא במצב "נדחה"';
+        submitBtn.textContent = 'הטיוטה כבר טופלה (' + body.decision + ')';
         return;
       }
       // Backend-driven category list (one source of truth). Falls back
@@ -341,7 +351,7 @@
       .then(function (x) {
         const body = x.body || {};
         if (x.status === 200 && body.ok) {
-          submitBtn.textContent = '✓ נשמר';
+          submitBtn.textContent = '✓ נדחה ונשמר';
           submitBtn.style.background = '#28a745';
           setTimeout(function () { tg.close(); }, 250);
         } else {
