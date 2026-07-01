@@ -331,6 +331,13 @@
       if (body.reject_reason_code) { selected = body.reject_reason_code; }
       renderRadios();
       if (body.reject_reason_text) { textEl.value = body.reject_reason_text; }
+      // Phase 10 (2026-07-01): jump STRAIGHT into the free-text box so the
+      // phone keyboard opens and the operator can type immediately (the
+      // category radios stay tappable above; the 'focus' handler lifts the
+      // box above the keyboard). Programmatic focus is allowed here because
+      // the Mini App itself was opened by a user tap. Small delay lets the
+      // WebView finish expanding before we focus.
+      setTimeout(function () { try { textEl.focus(); } catch (e) {} }, 300);
     })
     .catch(function (e) {
       console.warn('draft_view (reason) failed:', e);
