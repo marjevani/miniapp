@@ -103,6 +103,21 @@
   tg.BackButton.onClick(function () { tg.close(); });
   tg.MainButton.hide();
 
+  // Manual-send (send mode) opens FULL-SCREEN and must be closed explicitly
+  // (operator request 2026-07-03): the button URL omits mode=compact so it
+  // opens full-height, and we block swipe-to-minimize so an accidental swipe
+  // can't dismiss it mid-send — the operator taps ✕/Back to return to the
+  // chat. reason/edit keep the default (lighter) bottom-sheet behavior.
+  // disableVerticalSwipes is Bot API 7.7+ — guarded so older clients no-op.
+  if (mode === 'send') {
+    try {
+      tg.expand();
+      if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+      }
+    } catch (e) { console.warn('send full-screen setup failed (non-fatal):', e); }
+  }
+
   // ── Shared auth body ───────────────────────────────────────────────
   function authBody(extra) {
     const b = { id: parseInt(approvalId, 10), tenant: tenant, _auth: tg.initData || '' };
