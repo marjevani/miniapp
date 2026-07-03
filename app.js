@@ -143,6 +143,15 @@
       }
       ta.value = body.draft || '';
       fbUrl = body.fb_url || '';
+      // Multi-operator lock (v18, 2026-07-03): another operator opened this
+      // draft first and owns it. Don't reveal a copyable draft or a send
+      // button — that's how a duplicate FB comment would happen.
+      if (body.locked_by_other) {
+        ta.value = '🔒 הטיוטה מטופלת כרגע על ידי מפעיל אחר';
+        isHandled = true;
+        btn.style.display = 'none';
+        return;
+      }
       if (body.already_handled) {
         ta.value += '\n\n⚠ הטיוטה כבר טופלה (' + (body.decision || '?') + ') — הכפתור לא פעיל';
         isHandled = true;
@@ -310,6 +319,15 @@
         submitBtn.textContent = 'טעינה נכשלה — ' + (body.reason || 'error');
         return;
       }
+      // Multi-operator lock (v18, 2026-07-03): another operator owns this
+      // draft. A locked row is still 'pending' (soft-lock), so it would pass
+      // the ALLOWED check below and wrongly render the form — check it FIRST.
+      // (The backend also refuses the commit server-side.)
+      if (body.locked_by_other) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '🔒 מטופל על ידי מפעיל אחר';
+        return;
+      }
       // Phase 10 (2026-07-01): the reason form now serves TWO states —
       //   • a PENDING draft (the ❌ דחה - שגוי wrong-match button opens
       //     this form on a live draft; submitting COMMITS the reject), and
@@ -455,6 +473,15 @@
         return;
       }
       textEl.value = body.edited_text || body.draft || '';
+      // Multi-operator lock (v18, 2026-07-03): another operator owns this
+      // draft — don't let this one edit it in parallel.
+      if (body.locked_by_other) {
+        textEl.value = '🔒 הטיוטה מטופלת כרגע על ידי מפעיל אחר';
+        textEl.disabled = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = '🔒 מטופל על ידי מפעיל אחר';
+        return;
+      }
       if (body.already_handled) {
         textEl.disabled = true;
         submitBtn.disabled = true;
