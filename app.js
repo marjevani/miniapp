@@ -103,15 +103,23 @@
   tg.BackButton.onClick(function () { tg.close(); });
   tg.MainButton.hide();
 
-  // Manual-send (send mode) opens COMPACT (half-height) and we do NOT expand()
-  // — the lighter sheet is the intended UX. It CAN be minimized by a swipe or
-  // a tap-outside, and that's accepted: Telegram exposes no API to block the
-  // backdrop tap, and disableVerticalSwipes() was verified NOT to block the
-  // swipe on a compact sheet (iOS, 2026-07-03) — so we don't call it. A
-  // minimize is harmless anyway: it doesn't close the app, the owner can still
-  // send on restore, and the short claim TTL (db.CLAIM_TTL_SECONDS) auto-
-  // releases any stray lock. Full-screen is the only minimize-proof mode, and
-  // the operator chose compact over it. reason/edit expand() as before.
+  // Manual-send (send mode) opens COMPACT (half-height) — no expand(), the
+  // lighter sheet is the intended UX. Best-effort: call disableVerticalSwipes()
+  // to block the swipe-down minimize. It was verified INEFFECTIVE on a compact
+  // sheet on iOS (2026-07-03) but is kept because it MAY work on Android, and
+  // it's a harmless no-op where unsupported (version-guarded). It can't block
+  // the tap-outside/backdrop minimize regardless (no Telegram API for that), so
+  // a compact sheet stays minimizable — accepted, since a minimize is harmless
+  // (doesn't close; owner can still send on restore) and the short claim TTL
+  // (db.CLAIM_TTL_SECONDS) auto-releases any stray lock. Full-screen is the only
+  // truly minimize-proof mode; operator chose compact. reason/edit expand().
+  if (mode === 'send') {
+    try {
+      if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+      }
+    } catch (e) { console.warn('send swipe-disable failed (non-fatal):', e); }
+  }
 
   // ── Shared auth body ───────────────────────────────────────────────
   function authBody(extra) {
