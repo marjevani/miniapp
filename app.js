@@ -103,19 +103,19 @@
   tg.BackButton.onClick(function () { tg.close(); });
   tg.MainButton.hide();
 
-  // Manual-send (send mode) opens FULL-SCREEN and must be closed explicitly
-  // (operator request 2026-07-03): the button URL omits mode=compact so it
-  // opens full-height, and we block swipe-to-minimize so an accidental swipe
-  // can't dismiss it mid-send — the operator taps ✕/Back to return to the
-  // chat. reason/edit keep the default (lighter) bottom-sheet behavior.
-  // disableVerticalSwipes is Bot API 7.7+ — guarded so older clients no-op.
+  // Manual-send (send mode) opens COMPACT but blocks swipe-to-minimize so an
+  // accidental swipe-down can't dismiss it mid-send (operator request
+  // 2026-07-03). We do NOT expand() — the half-height compact sheet is the
+  // intended lighter UX. A tap-outside can still minimize it (Telegram has no
+  // API to block the backdrop tap); the short claim TTL auto-releases any
+  // stray lock. disableVerticalSwipes is Bot API 7.7+ — guarded so older
+  // clients no-op. reason/edit keep the default behavior.
   if (mode === 'send') {
     try {
-      tg.expand();
       if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes) {
         tg.disableVerticalSwipes();
       }
-    } catch (e) { console.warn('send full-screen setup failed (non-fatal):', e); }
+    } catch (e) { console.warn('send swipe-disable failed (non-fatal):', e); }
   }
 
   // ── Shared auth body ───────────────────────────────────────────────
