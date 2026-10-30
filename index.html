@@ -208,8 +208,8 @@
   /* Edit mode (2026-10-30, operator review): a STATIC layout, applied in the
      same frame as the tap — no JS measuring, no waits, no fades. The sheet
      expands, the box gets a fixed pixel height (app.js sizeBox) and the send
-     button sits in the flow right under it at 72px (operator review: 85px,
-     128px, 96px, then shorter again so the box gets more room; 170px outside
+     button sits in the flow right under it at 56px (operator review: 85px,
+     128px, 96px, 72px, then shorter again so the box gets more room; 170px outside
      edit mode), ending just above the keyboard. It stays this way until the
      sheet closes. */
   body.editing .container { padding-bottom: 16px; }
@@ -220,7 +220,7 @@
   body.editing #send-btn {
     position: static;
     width: 100%; max-width: none; margin: 4px 0 8px;
-    min-height: 72px; padding: 12px;
+    min-height: 56px; padding: 10px;
   }
   .err-box {
     background: #f8d7da; color: #721c24;
@@ -333,6 +333,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20261030k" defer></script>
+<script src="app.js?v=20261030l" defer></script>
 </body>
 </html>
