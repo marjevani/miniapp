@@ -186,6 +186,33 @@
     opacity: 0.5;
     cursor: default;
   }
+  /* 2026-10-30 editable manual-send sheet. */
+  .card-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px;
+  }
+  .link-btn {
+    background: none; border: none; padding: 0 0 6px; margin: 0;
+    color: var(--accent); font: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer;
+  }
+  .hint { font-size: 12px; color: var(--fg-muted); margin: -2px 0 8px; }
+  .hint.warn { color: #c0392b; font-weight: 600; }
+  /* The card shows it is editable: an accent outline while the text has focus. */
+  .card.editable:focus-within { border-color: var(--accent); }
+  /* Once the operator taps into the text, the sheet expands and the send
+     button leaves its fixed bottom spot for a normal in-flow spot under the
+     card: a fixed 170px button would sit under the iOS keyboard (the keyboard
+     does not shrink the layout viewport there) and over the text on Android.
+     The layout then stays this way until the sheet closes — switching back on
+     blur would move the button out from under a finger already tapping it. */
+  body.editing .container { padding-bottom: 16px; }
+  body.editing textarea.draft-text { max-height: 34vh; }
+  body.editing #send-btn {
+    position: static;
+    width: 100%; max-width: none; margin: 4px 0 8px;
+    min-height: 0; padding: 15px;
+  }
   .err-box {
     background: #f8d7da; color: #721c24;
     border: 1px solid #f5c6cb; border-radius: 10px;
@@ -233,12 +260,19 @@
   <!-- ── MANUAL-SEND MODE (Phase 6) ── shown by default; app.js hides
        it in reason mode. -->
   <div id="send-form">
-    <div class="card">
-      <div class="card-label">טיוטה לשליחה</div>
+    <div class="card" id="draft-card">
+      <!-- 2026-10-30 editable sheet: when the backend says `editable`, the
+           box is editable from the start (no extra tap), a muted hint says
+           so, and "חזרה למקור" appears once the text differs. -->
+      <div class="card-head">
+        <div class="card-label">טיוטה לשליחה</div>
+        <button type="button" id="draft-reset" class="link-btn" hidden>↩️ חזרה למקור</button>
+      </div>
+      <div id="draft-hint" class="hint" hidden>אפשר לערוך את הטקסט לפני השליחה</div>
       <!-- O2 (2026-06-04): draft display is a real <textarea> (not a div)
            so app.js can document.execCommand('copy') on it after an
            in-page button click. -->
-      <textarea class="draft-text" id="draft-text-display" readonly dir="rtl">טוען טיוטה…</textarea>
+      <textarea class="draft-text" id="draft-text-display" readonly dir="rtl" maxlength="4000">טוען טיוטה…</textarea>
     </div>
     <!-- Primary action — in-page <button>, NOT MainButton. See app.js
          for the gesture-activation rationale. -->
@@ -289,6 +323,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20260703e" defer></script>
+<script src="app.js?v=20261030a" defer></script>
 </body>
 </html>

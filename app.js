@@ -100,7 +100,13 @@
   try { tg.onEvent('viewportChanged', syncBottomOffset); } catch (e) {}
   window.addEventListener('resize', syncBottomOffset);
   tg.BackButton.show();
-  tg.BackButton.onClick(function () { tg.close(); });
+  // A mode may set `backGuard` (2026-10-30, editable send sheet): it returns
+  // true when it took over the tap (e.g. to confirm discarding an edit).
+  let backGuard = null;
+  tg.BackButton.onClick(function () {
+    if (backGuard && backGuard()) return;
+    tg.close();
+  });
   tg.MainButton.hide();
 
   // Manual-send (send mode) opens COMPACT (half-height) — no expand(), the
@@ -141,10 +147,160 @@
     document.getElementById('send-form').hidden = false;
     document.getElementById('reason-form').hidden = true;
 
+    const container = document.querySelector('.container');
+    const card = document.getElementById('draft-card');
     const ta = document.getElementById('draft-text-display');
     const btn = document.getElementById('send-btn');
+    const hint = document.getElementById('draft-hint');
+    const resetBtn = document.getElementById('draft-reset');
+    const SEND_LABEL = btn.textContent;
+    const EDITED_LABEL = '📤 שלח גרסה ערוכה';
     let fbUrl = '';
     let isHandled = false;
+
+    // ── Editable sheet (2026-10-30, docs/MANUAL_SEND_EDIT_PLAN.md) ────────
+    // Only when draft_view says `editable` (server-side preview gate). The box
+    // is editable from the start: no extra tap. The first tap into the text
+    // expands the sheet and moves the send button into the flow under the card
+    // (body.editing) so the keyboard can't hide it. Otherwise this mode behaves
+    // exactly as before.
+    let editable = false;
+    let editing = false;     // body.editing applied (stays until close)
+    let copying = false;     // the send gesture's own focus() is not an edit
+    let loadedDraft = '';
+    let heartbeat = null;
+    const openedAt = Date.now();
+    // initData expires 300 s after open (INIT_DATA_MAX_AGE_S): a POST after
+    // that is refused, so the send would never be recorded. Stop short of it.
+    const SESSION_MS = 240 * 1000;
+    const storeKey = 'fbc_edit_' + tenant + '_' + approvalId;
+
+    function isChanged() {
+      return editable && ta.value.trim() !== loadedDraft.trim();
+    }
+    function setClosingGuard(on) {
+      try {
+        if (!(tg.isVersionAtLeast && tg.isVersionAtLeast('6.2'))) return;
+        if (on) tg.enableClosingConfirmation(); else tg.disableClosingConfirmation();
+      } catch (e) {}
+    }
+    function saveLocal() {
+      try {
+        localStorage.setItem(storeKey, JSON.stringify(
+          { text: ta.value, base: loadedDraft, at: Date.now() }));
+      } catch (e) {}
+    }
+    function clearLocal() { try { localStorage.removeItem(storeKey); } catch (e) {} }
+    function loadLocal() {
+      try {
+        const v = JSON.parse(localStorage.getItem(storeKey) || 'null');
+        if (v && v.base === loadedDraft && typeof v.text === 'string'
+            && Date.now() - (v.at || 0) < 24 * 3600 * 1000) return v.text;
+      } catch (e) {}
+      return null;
+    }
+    function refreshEditState() {
+      if (!editable || isHandled) return;
+      const changed = isChanged();
+      resetBtn.hidden = !changed;
+      if (!ta.value.trim()) {
+        btn.disabled = true;
+        btn.textContent = 'הטקסט ריק';
+      } else {
+        btn.disabled = false;
+        btn.textContent = changed ? EDITED_LABEL : SEND_LABEL;
+      }
+      setClosingGuard(changed);
+      if (changed) saveLocal(); else clearLocal();
+    }
+    function lockSheet(message) {
+      isHandled = true;
+      ta.readOnly = true;
+      resetBtn.hidden = true;
+      btn.style.display = 'none';
+      hint.hidden = false;
+      hint.className = 'hint warn';
+      hint.textContent = message;
+      setClosingGuard(false);
+      stopHeartbeat();
+    }
+
+    // Keyboard lift — same approach as the reason/edit forms: scroll the page
+    // so the send button sits just above the keyboard.
+    function keyboardHeight() {
+      const layoutVH = window.innerHeight || document.documentElement.clientHeight || 0;
+      const visibleVH = (window.visualViewport && window.visualViewport.height)
+                        || tg.viewportHeight || layoutVH;
+      return Math.max(0, layoutVH - visibleVH);
+    }
+    function liftAboveKeyboard() {
+      if (!editing || document.activeElement !== ta) return;
+      const kb = keyboardHeight();
+      if (kb <= 0) return;
+      if (container) container.style.paddingBottom = (kb + 24) + 'px';
+      const rect = btn.getBoundingClientRect();
+      const target = (window.innerHeight || 0) - kb - 10;
+      const delta = rect.bottom - target;
+      if (delta > 0) window.scrollBy({ top: delta, behavior: 'smooth' });
+    }
+
+    // The claim on this draft (db.CLAIM_TTL_SECONDS = 60) is what stops a
+    // second operator from sending it too. Editing can take longer than that,
+    // so re-open the draft every 25 s while editing — draft_view re-claims for
+    // the same operator. Stops at the session limit.
+    function startHeartbeat() {
+      if (heartbeat || approvalId === '0') return;  // the demo holds no claim
+      heartbeat = setInterval(function () {
+        if (isHandled || Date.now() - openedAt > SESSION_MS) { stopHeartbeat(); return; }
+        fetch(apiUrl + '/api/draft_view', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(authBody()),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (b) {
+          if (b && b.locked_by_other) lockSheet('🔒 הטיוטה עברה למפעיל אחר — לא לשלוח');
+          else if (b && b.already_handled) lockSheet('⚠ הטיוטה כבר טופלה (' + (b.decision || '?') + ')');
+        })
+        .catch(function () {});  // a blip: the next beat retries
+      }, 25 * 1000);
+    }
+    function stopHeartbeat() { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } }
+
+    function enterEditing() {
+      if (editing) return;
+      editing = true;
+      document.body.classList.add('editing');
+      try { tg.expand(); } catch (e) {}
+      startHeartbeat();
+    }
+
+    ta.addEventListener('focus', function () {
+      if (!editable || copying || isHandled) return;
+      enterEditing();
+      setTimeout(liftAboveKeyboard, 350);
+    });
+    ta.addEventListener('input', refreshEditState);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', liftAboveKeyboard);
+    }
+    try { tg.onEvent('viewportChanged', function () { setTimeout(liftAboveKeyboard, 50); }); } catch (e) {}
+    resetBtn.addEventListener('click', function () {
+      ta.value = loadedDraft;
+      refreshEditState();
+    });
+    backGuard = function () {
+      if (!isChanged() || isHandled) return false;
+      try {
+        if (tg.isVersionAtLeast && tg.isVersionAtLeast('6.2') && tg.showConfirm) {
+          tg.showConfirm('לצאת בלי לשלוח? הנוסח הערוך יישמר לפתיחה הבאה.', function (ok) {
+            if (ok) { setClosingGuard(false); tg.close(); }
+          });
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    };
 
     fetch(apiUrl + '/api/draft_view', {
       method: 'POST',
@@ -176,6 +332,22 @@
         btn.style.display = 'none';
         return;
       }
+      if (body.editable === true) {
+        editable = true;
+        loadedDraft = body.draft || '';
+        ta.readOnly = false;
+        card.classList.add('editable');
+        hint.hidden = false;
+        // An edit left behind by an earlier open (expired window, back out):
+        // bring it back.
+        const kept = loadLocal();
+        if (kept !== null && kept.trim() !== loadedDraft.trim()) {
+          ta.value = kept;
+          hint.textContent = 'שוחזר הנוסח שערכת קודם';
+        }
+        refreshEditState();
+        return;
+      }
       btn.disabled = false;
     })
     .catch(function (e) {
@@ -186,13 +358,31 @@
 
     btn.addEventListener('click', function () {
       if (isHandled || btn.disabled) return;
+      if (editable && !ta.value.trim()) return;
+      // Past the initData window the commit would be refused after the copy:
+      // keep the text and ask for a fresh open instead of a send that is
+      // never recorded.
+      if (editable && Date.now() - openedAt > SESSION_MS) {
+        if (isChanged()) saveLocal();
+        setClosingGuard(false);
+        lockSheet('⏱ החלון פתוח יותר מדי זמן. סגרו ופתחו שוב מהכפתור בטלגרם'
+                  + (isChanged() ? ' — הנוסח שערכת יחכה שם.' : '.'));
+        return;
+      }
+      const changed = isChanged();
       btn.disabled = true;
       btn.textContent = '⏳ מעתיק…';
       let copied = false;
       try {
+        // Read-only for the copy: focus()+select() on an editable box would
+        // raise the keyboard again (a read-only box is the proven copy path).
+        copying = true;
+        if (editable) ta.readOnly = true;
         ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
         copied = document.execCommand('copy');
+        if (editable) ta.blur();
       } catch (e) { console.warn('execCommand threw:', e); }
+      copying = false;
       // Open FB NOW, inside the click gesture (Desktop blocks openLink after
       // an await); only when the copy worked — otherwise the operator pastes
       // manually from the textarea.
@@ -214,13 +404,19 @@
       function onSettle() {
         if (settled) return;
         settled = true;
-        if (copied) setTimeout(function () { tg.close(); }, 100);
+        stopHeartbeat();
+        if (copied) {
+          if (editable) { clearLocal(); setClosingGuard(false); }
+          setTimeout(function () { tg.close(); }, 100);
+        }
       }
+      // The edited text rides along only when the operator changed the draft.
+      const extra = changed ? { edited_text: ta.value.trim() } : undefined;
       try {
         fetch(apiUrl + '/api/manual_send', {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(authBody()),
+          body: JSON.stringify(authBody(extra)),
           keepalive: true,
         }).catch(function (e) { console.warn('manual_send POST failed:', e); })
           .finally(onSettle);
