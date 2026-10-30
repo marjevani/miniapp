@@ -196,7 +196,12 @@
     color: var(--accent); font: inherit; font-size: 13px; font-weight: 600;
     cursor: pointer;
   }
-  .hint { font-size: 12px; color: var(--fg-muted); margin: -2px 0 8px; }
+  /* Hint sits OUTSIDE the box, in the gap between the card and the send
+     button (operator 2026-10-30). */
+  .hint {
+    font-size: 14px; color: var(--fg-muted); text-align: center;
+    margin: 6px 0 0;
+  }
   .hint.warn { color: #c0392b; font-weight: 600; }
   /* The card shows it is editable: an accent outline while the text has focus. */
   .card.editable:focus-within { border-color: var(--accent); }
@@ -209,11 +214,13 @@
   body.editing .container { padding-bottom: 16px; }
   /* Height is set by app.js (fitToSpace): fills the space above the keyboard. */
   body.editing textarea.draft-text { max-height: none; }
-  /* The button keeps its full 170px height (operator 2026-10-30: "always
-     big"); only its position changes. fitToSpace subtracts its height. */
+  /* While editing the button is HALF its usual height, 85px of 170px
+     (operator review 2026-10-30), so the box gets the room. fitToSpace
+     subtracts the button's height. */
   body.editing #send-btn {
     position: static;
     width: 100%; max-width: none; margin: 4px 0 8px;
+    min-height: 85px; padding: 12px;
   }
   .err-box {
     background: #f8d7da; color: #721c24;
@@ -270,12 +277,13 @@
         <div class="card-label">טיוטה לשליחה</div>
         <button type="button" id="draft-reset" class="link-btn" hidden>↩️ חזרה למקור</button>
       </div>
-      <div id="draft-hint" class="hint" hidden>אפשר לערוך את הטקסט לפני השליחה</div>
       <!-- O2 (2026-06-04): draft display is a real <textarea> (not a div)
            so app.js can document.execCommand('copy') on it after an
            in-page button click. -->
       <textarea class="draft-text" id="draft-text-display" readonly dir="rtl" maxlength="4000">טוען טיוטה…</textarea>
     </div>
+    <!-- Shown only on an editable draft, hidden once editing starts. -->
+    <div id="draft-hint" class="hint" hidden>לחץ על הטקסט לעריכת התגובה</div>
     <!-- Primary action — in-page <button>, NOT MainButton. See app.js
          for the gesture-activation rationale. -->
     <button id="send-btn" class="primary-btn" disabled>📤 שלח ידנית</button>
@@ -325,6 +333,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20261030c" defer></script>
+<script src="app.js?v=20261030d" defer></script>
 </body>
 </html>
