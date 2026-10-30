@@ -273,7 +273,11 @@
     // correction when the measurement arrives. Closing the keyboard changes
     // nothing either (the box keeps its height; space opens below it).
     const KB_KEY = 'fbc_kbup_h_' + (window.screen ? screen.height : 0);
-    const KB_ESTIMATE = 0.53;   // keyboard-up page height / screen height (iPhone, Telegram)
+    // keyboard-up page height / screen height. Measured on the operator's
+    // iPhone (874pt screen): page 132..546pt = 414pt = 0.474. Rounded DOWN so a
+    // first open errs toward a slightly smaller box, never a button under the
+    // keyboard (the learned value then corrects it, if off by more than 6px).
+    const KB_ESTIMATE = 0.47;
     const MIN_EDIT_PX = 96;
     let kbUpHeight = 0;         // the keyboard-up height the box is sized for
     let tallest = window.innerHeight || 0;
