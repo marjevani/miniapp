@@ -119,7 +119,14 @@
   // (doesn't close; owner can still send on restore) and the short claim TTL
   // (db.CLAIM_TTL_SECONDS) auto-releases any stray lock. Full-screen is the only
   // truly minimize-proof mode; operator chose compact. reason/edit expand().
-  if (mode === 'send') {
+  //
+  // 🌐 (`_browser`, 2026-10-15) runs the SAME send sheet and must behave the
+  // same (operator 2026-10-30: the two buttons "operate differently"). It was
+  // missing here, so on 🌐 a drag or a scroll in the expanded edit sheet pulled
+  // the whole sheet down while 📤 stayed put. The ONLY intended difference
+  // between the two is server-side: 🌐 gets a permalink that opens in the
+  // browser instead of the Facebook app (`_browser_open_url`).
+  if (mode === 'send' || mode === 'browser') {
     try {
       if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes) {
         tg.disableVerticalSwipes();
