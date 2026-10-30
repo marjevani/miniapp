@@ -267,10 +267,33 @@
     }
     function stopHeartbeat() { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } }
 
+    // While editing, the box fills ALL the space between its top and the send
+    // button, which sits just above the keyboard (or at the bottom of the
+    // sheet once the keyboard closes). Operator feedback 2026-10-30: a fixed
+    // 34vh cap left half the screen empty above the iOS keyboard. Measured
+    // against the VISUAL viewport (the part not under the keyboard) on every
+    // resize / scroll / Telegram viewport change.
+    const MIN_EDIT_PX = 126;
+    function fitToSpace() {
+      if (!editing || isHandled) return;
+      const vv = window.visualViewport;
+      const visibleBottom = vv ? vv.offsetTop + vv.height
+                               : (tg.viewportHeight || window.innerHeight || 0);
+      const taRect = ta.getBoundingClientRect();
+      const below = (card.getBoundingClientRect().bottom - taRect.bottom)  // card padding
+                    + btn.offsetHeight + 4 + 12;                           // button + gaps
+      const h = Math.max(MIN_EDIT_PX, Math.floor(visibleBottom - taRect.top - below));
+      if (Math.abs(ta.offsetHeight - h) > 4) ta.style.height = h + 'px';
+      // Only a very short screen leaves the button under the keyboard.
+      if (h === MIN_EDIT_PX) liftAboveKeyboard();
+    }
+    function refit() { setTimeout(fitToSpace, 60); }
+
     function enterEditing() {
       if (editing) return;
       editing = true;
       document.body.classList.add('editing');
+      hint.hidden = true;  // the box is in use: give its line to the text
       try { tg.expand(); } catch (e) {}
       startHeartbeat();
     }
@@ -278,13 +301,19 @@
     ta.addEventListener('focus', function () {
       if (!editable || copying || isHandled) return;
       enterEditing();
-      setTimeout(liftAboveKeyboard, 350);
+      fitToSpace();
+      // The keyboard and the sheet expansion animate in; measure again once
+      // they have settled.
+      setTimeout(fitToSpace, 350);
+      setTimeout(fitToSpace, 700);
     });
+    ta.addEventListener('blur', refit);
     ta.addEventListener('input', refreshEditState);
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', liftAboveKeyboard);
+      window.visualViewport.addEventListener('resize', refit);
+      window.visualViewport.addEventListener('scroll', refit);
     }
-    try { tg.onEvent('viewportChanged', function () { setTimeout(liftAboveKeyboard, 50); }); } catch (e) {}
+    try { tg.onEvent('viewportChanged', refit); } catch (e) {}
     resetBtn.addEventListener('click', function () {
       ta.value = loadedDraft;
       refreshEditState();
