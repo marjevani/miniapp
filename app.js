@@ -147,7 +147,6 @@
     document.getElementById('send-form').hidden = false;
     document.getElementById('reason-form').hidden = true;
 
-    const container = document.querySelector('.container');
     const card = document.getElementById('draft-card');
     const ta = document.getElementById('draft-text-display');
     const btn = document.getElementById('send-btn');
@@ -225,25 +224,6 @@
       stopHeartbeat();
     }
 
-    // Keyboard lift — same approach as the reason/edit forms: scroll the page
-    // so the send button sits just above the keyboard.
-    function keyboardHeight() {
-      const layoutVH = window.innerHeight || document.documentElement.clientHeight || 0;
-      const visibleVH = (window.visualViewport && window.visualViewport.height)
-                        || tg.viewportHeight || layoutVH;
-      return Math.max(0, layoutVH - visibleVH);
-    }
-    function liftAboveKeyboard() {
-      if (!editing || document.activeElement !== ta) return;
-      const kb = keyboardHeight();
-      if (kb <= 0) return;
-      if (container) container.style.paddingBottom = (kb + 24) + 'px';
-      const rect = btn.getBoundingClientRect();
-      const target = (window.innerHeight || 0) - kb - 10;
-      const delta = rect.bottom - target;
-      if (delta > 0) window.scrollBy({ top: delta, behavior: 'smooth' });
-    }
-
     // The claim on this draft (db.CLAIM_TTL_SECONDS = 60) is what stops a
     // second operator from sending it too. Editing can take longer than that,
     // so re-open the draft every 25 s while editing — draft_view re-claims for
@@ -267,61 +247,15 @@
     }
     function stopHeartbeat() { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } }
 
-    // While editing, the box fills ALL the space between its top and the send
-    // button, which sits just above the keyboard (or at the bottom of the
-    // sheet once the keyboard closes). Operator feedback 2026-10-30: a fixed
-    // 34vh cap left half the screen empty above the iOS keyboard. Measured
-    // against the VISUAL viewport (the part not under the keyboard) on every
-    // resize / scroll / Telegram viewport change.
-    // ~4 lines. The send button keeps its full 170px height (operator
-    // 2026-10-30), so above an iPhone keyboard the box gets what is left;
-    // below this floor the page scrolls instead (liftAboveKeyboard).
-    const MIN_EDIT_PX = 96;
-    function fitToSpace() {
-      if (!editing || isHandled) return;
-      const vv = window.visualViewport;
-      const visibleBottom = vv ? vv.offsetTop + vv.height
-                               : (tg.viewportHeight || window.innerHeight || 0);
-      const taRect = ta.getBoundingClientRect();
-      const below = (card.getBoundingClientRect().bottom - taRect.bottom)  // card padding
-                    + btn.offsetHeight + 4 + 12;                           // button + gaps
-      const h = Math.max(MIN_EDIT_PX, Math.floor(visibleBottom - taRect.top - below));
-      if (Math.abs(ta.offsetHeight - h) > 4) ta.style.height = h + 'px';
-      // Only a very short screen leaves the button under the keyboard.
-      if (h === MIN_EDIT_PX) liftAboveKeyboard();
-    }
-
-    // ONE settled resize instead of many (operator 2026-10-30: "the button
-    // pops, looks buggy"). A tap into the text starts three animations at
-    // once: the sheet expands, the keyboard rises, the button moves. Resizing
-    // on every viewport event during them made the button hop several times.
-    // Now: the button is hidden while things move (body.editing without
-    // .edit-ready), the box is sized ONCE when the viewport has been still for
-    // SETTLE_QUIET_MS (never before SETTLE_MIN_MS, never after SETTLE_MAX_MS),
-    // then the button fades in at its final place. Later changes (keyboard
-    // closing or reopening) wait for the same stillness and the box height
-    // animates (CSS transition on body.edit-ready), so nothing jumps.
-    const SETTLE_QUIET_MS = 160, SETTLE_MIN_MS = 300, SETTLE_MAX_MS = 900;
-    let settleTimer = null, lastMove = 0, settleFrom = 0;
-    function settleThenFit() {
-      if (!editing || isHandled) return;
-      lastMove = Date.now();
-      if (settleTimer) return;
-      settleFrom = lastMove;
-      settleTimer = setInterval(function () {
-        const now = Date.now();
-        const quiet = now - lastMove >= SETTLE_QUIET_MS && now - settleFrom >= SETTLE_MIN_MS;
-        if (!quiet && now - settleFrom < SETTLE_MAX_MS) return;
-        clearInterval(settleTimer);
-        settleTimer = null;
-        fitToSpace();
-        if (!document.body.classList.contains('edit-ready')) {
-          void ta.offsetHeight;  // commit the first height before transitions apply
-          document.body.classList.add('edit-ready');
-        }
-      }, 50);
-    }
-
+    // Entering edit mode is ONE instant class switch (operator 2026-10-30:
+    // "simple, super fast, responsive"). The layout is static CSS
+    // (body.editing in index.html): the box gets a fixed share of the sheet's
+    // height and the half-height send button sits right under it, so the final
+    // layout is drawn in the same frame as the tap. No measuring, no waiting
+    // for the keyboard, no fades. (A measure-and-resize version made the
+    // button hop, then a wait-for-the-keyboard version took ~1 s — both
+    // replaced.) The sheet's height does not change when the iOS keyboard
+    // opens, so a fixed share stays right.
     function enterEditing() {
       if (editing) return;
       editing = true;
@@ -334,15 +268,8 @@
     ta.addEventListener('focus', function () {
       if (!editable || copying || isHandled) return;
       enterEditing();
-      settleThenFit();
     });
-    ta.addEventListener('blur', settleThenFit);
     ta.addEventListener('input', refreshEditState);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', settleThenFit);
-      window.visualViewport.addEventListener('scroll', settleThenFit);
-    }
-    try { tg.onEvent('viewportChanged', settleThenFit); } catch (e) {}
     resetBtn.addEventListener('click', function () {
       ta.value = loadedDraft;
       refreshEditState();

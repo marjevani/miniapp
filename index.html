@@ -205,33 +205,23 @@
   .hint.warn { color: #c0392b; font-weight: 600; }
   /* The card shows it is editable: an accent outline while the text has focus. */
   .card.editable:focus-within { border-color: var(--accent); }
-  /* Once the operator taps into the text, the sheet expands and the send
-     button leaves its fixed bottom spot for a normal in-flow spot under the
-     card: a fixed 170px button would sit under the iOS keyboard (the keyboard
-     does not shrink the layout viewport there) and over the text on Android.
-     The layout then stays this way until the sheet closes — switching back on
-     blur would move the button out from under a finger already tapping it. */
+  /* Edit mode (2026-10-30, operator review): a STATIC layout, applied in the
+     same frame as the tap — no JS measuring, no waits, no fades. The sheet
+     expands, the box takes a fixed 27% of the sheet's height and the send
+     button sits in the flow right under it at 128px (operator: half again the
+     85px first tried; 170px outside edit mode). Sized from the operator's
+     iPhone recording so box + button end just above the keyboard; the sheet
+     height does not change when the iOS keyboard opens, so a fixed share
+     stays right. It stays this way until the sheet closes. */
   body.editing .container { padding-bottom: 16px; }
-  /* Height is set by app.js (fitToSpace): fills the space above the keyboard. */
-  body.editing textarea.draft-text { max-height: none; }
-  /* While editing the button is HALF its usual height, 85px of 170px
-     (operator review 2026-10-30), so the box gets the room. fitToSpace
-     subtracts the button's height. */
+  body.editing textarea.draft-text {
+    height: 27vh; min-height: 96px; max-height: none;
+  }
   body.editing #send-btn {
     position: static;
     width: 100%; max-width: none; margin: 4px 0 8px;
-    min-height: 85px; padding: 12px;
+    min-height: 128px; padding: 12px;
   }
-  /* No hopping (2026-10-30): while the sheet and keyboard are still moving
-     the button is invisible; app.js adds .edit-ready once it has sized the box
-     a single time, and the button fades in at its final place. After that the
-     box height animates instead of jumping. */
-  body.editing:not(.edit-ready) #send-btn { opacity: 0; pointer-events: none; transition: none; }
-  /* Transition only on the way IN: hiding must be instant (overriding
-     .primary-btn's own opacity transition), or the button would show for a
-     moment at its new place while fading out. */
-  body.edit-ready #send-btn { transition: opacity 0.15s ease; }
-  body.edit-ready textarea.draft-text { transition: height 0.18s ease; }
   .err-box {
     background: #f8d7da; color: #721c24;
     border: 1px solid #f5c6cb; border-radius: 10px;
@@ -343,6 +333,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20261030e" defer></script>
+<script src="app.js?v=20261030f" defer></script>
 </body>
 </html>
