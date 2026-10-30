@@ -247,20 +247,63 @@
     }
     function stopHeartbeat() { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } }
 
-    // Entering edit mode is ONE instant class switch (operator 2026-10-30:
-    // "simple, super fast, responsive"). The layout is static CSS
-    // (body.editing in index.html): the box gets a fixed share of the sheet's
-    // height and the half-height send button sits right under it, so the final
-    // layout is drawn in the same frame as the tap. No measuring, no waiting
-    // for the keyboard, no fades. (A measure-and-resize version made the
-    // button hop, then a wait-for-the-keyboard version took ~1 s — both
-    // replaced.) The sheet's height does not change when the iOS keyboard
-    // opens, so a fixed share stays right.
+    // Edit mode = ONE instant layout, set in the tap's own frame, that the
+    // keyboard does not change afterwards (operator 2026-10-30: "simple, super
+    // fast, responsive").
+    //
+    // What Telegram does (measured from the operator's iPhone recordings): it
+    // expands the sheet, the keyboard rises OVER the page, and ~0.3 s after
+    // the keyboard lands Telegram SHRINKS the page to the space above it. Any
+    // layout in viewport units (vh) therefore jumps at that moment; any layout
+    // that waits for the keyboard is late. So the box gets a height in PIXELS,
+    // computed for the page height that holds once the keyboard is up
+    // ("keyboard-up height"): the box and the button then sit above the
+    // keyboard before AND after Telegram's shrink, and nothing moves.
+    //
+    // The keyboard-up height is remembered per device (localStorage) from the
+    // first real measurement; until then it is estimated from the screen
+    // height, and the first open on a new device may make ONE instant
+    // correction when the measurement arrives. Closing the keyboard changes
+    // nothing either (the box keeps its height; space opens below it).
+    const KB_KEY = 'fbc_kbup_h_' + (window.screen ? screen.height : 0);
+    const KB_ESTIMATE = 0.53;   // keyboard-up page height / screen height (iPhone, Telegram)
+    const MIN_EDIT_PX = 96;
+    let kbUpHeight = 0;         // the keyboard-up height the box is sized for
+    let tallest = window.innerHeight || 0;
+    function rememberedKbUpHeight() {
+      try {
+        const v = parseInt(localStorage.getItem(KB_KEY) || '', 10);
+        if (v > 200) return v;
+      } catch (e) {}
+      return Math.round(((window.screen && screen.height) || 800) * KB_ESTIMATE);
+    }
+    function sizeBox(pageHeight) {
+      kbUpHeight = pageHeight;
+      // Everything below the box's top edge, in page pixels: the card's
+      // bottom padding, the gap, the button, and a margin above the keyboard.
+      const below = (card.getBoundingClientRect().bottom - ta.getBoundingClientRect().bottom)
+                    + 4 + btn.offsetHeight + 12;
+      const top = ta.getBoundingClientRect().top + (window.scrollY || 0);
+      ta.style.height = Math.max(MIN_EDIT_PX, Math.floor(pageHeight - top - below)) + 'px';
+    }
+    window.addEventListener('resize', function () {
+      const h = window.innerHeight || 0;
+      if (h > tallest) tallest = h;
+      if (!editing || isHandled) return;
+      // A page clearly shorter than its tallest = the keyboard is up. Learn
+      // its real height; re-size only if the estimate was off (first open).
+      if (h < tallest - 150) {
+        try { localStorage.setItem(KB_KEY, String(h)); } catch (e) {}
+        if (Math.abs(h - kbUpHeight) > 6) sizeBox(h);
+      }
+    });
+
     function enterEditing() {
       if (editing) return;
       editing = true;
       document.body.classList.add('editing');
       hint.hidden = true;  // the box is in use: give its line to the text
+      sizeBox(rememberedKbUpHeight());  // same frame as the class: no jump
       try { tg.expand(); } catch (e) {}
       startHeartbeat();
     }

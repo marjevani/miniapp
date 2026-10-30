@@ -207,16 +207,15 @@
   .card.editable:focus-within { border-color: var(--accent); }
   /* Edit mode (2026-10-30, operator review): a STATIC layout, applied in the
      same frame as the tap — no JS measuring, no waits, no fades. The sheet
-     expands, the box takes a fixed 27% of the sheet's height and the send
+     expands, the box gets a fixed pixel height (app.js sizeBox) and the send
      button sits in the flow right under it at 128px (operator: half again the
-     85px first tried; 170px outside edit mode). Sized from the operator's
-     iPhone recording so box + button end just above the keyboard; the sheet
-     height does not change when the iOS keyboard opens, so a fixed share
-     stays right. It stays this way until the sheet closes. */
+     85px first tried; 170px outside edit mode), ending just above the
+     keyboard. It stays this way until the sheet closes. */
   body.editing .container { padding-bottom: 16px; }
-  body.editing textarea.draft-text {
-    height: 27vh; min-height: 96px; max-height: none;
-  }
+  /* The height itself is set in PIXELS by app.js (sizeBox) in the same
+     frame: a vh height jumps when Telegram shrinks the page above the
+     keyboard. */
+  body.editing textarea.draft-text { min-height: 96px; max-height: none; }
   body.editing #send-btn {
     position: static;
     width: 100%; max-width: none; margin: 4px 0 8px;
@@ -333,6 +332,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20261030f" defer></script>
+<script src="app.js?v=20261030g" defer></script>
 </body>
 </html>
