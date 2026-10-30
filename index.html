@@ -222,6 +222,16 @@
     width: 100%; max-width: none; margin: 4px 0 8px;
     min-height: 85px; padding: 12px;
   }
+  /* No hopping (2026-10-30): while the sheet and keyboard are still moving
+     the button is invisible; app.js adds .edit-ready once it has sized the box
+     a single time, and the button fades in at its final place. After that the
+     box height animates instead of jumping. */
+  body.editing:not(.edit-ready) #send-btn { opacity: 0; pointer-events: none; transition: none; }
+  /* Transition only on the way IN: hiding must be instant (overriding
+     .primary-btn's own opacity transition), or the button would show for a
+     moment at its new place while fading out. */
+  body.edit-ready #send-btn { transition: opacity 0.15s ease; }
+  body.edit-ready textarea.draft-text { transition: height 0.18s ease; }
   .err-box {
     background: #f8d7da; color: #721c24;
     border: 1px solid #f5c6cb; border-radius: 10px;
@@ -333,6 +343,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20261030d" defer></script>
+<script src="app.js?v=20261030e" defer></script>
 </body>
 </html>

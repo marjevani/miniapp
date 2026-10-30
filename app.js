@@ -290,7 +290,37 @@
       // Only a very short screen leaves the button under the keyboard.
       if (h === MIN_EDIT_PX) liftAboveKeyboard();
     }
-    function refit() { setTimeout(fitToSpace, 60); }
+
+    // ONE settled resize instead of many (operator 2026-10-30: "the button
+    // pops, looks buggy"). A tap into the text starts three animations at
+    // once: the sheet expands, the keyboard rises, the button moves. Resizing
+    // on every viewport event during them made the button hop several times.
+    // Now: the button is hidden while things move (body.editing without
+    // .edit-ready), the box is sized ONCE when the viewport has been still for
+    // SETTLE_QUIET_MS (never before SETTLE_MIN_MS, never after SETTLE_MAX_MS),
+    // then the button fades in at its final place. Later changes (keyboard
+    // closing or reopening) wait for the same stillness and the box height
+    // animates (CSS transition on body.edit-ready), so nothing jumps.
+    const SETTLE_QUIET_MS = 160, SETTLE_MIN_MS = 300, SETTLE_MAX_MS = 900;
+    let settleTimer = null, lastMove = 0, settleFrom = 0;
+    function settleThenFit() {
+      if (!editing || isHandled) return;
+      lastMove = Date.now();
+      if (settleTimer) return;
+      settleFrom = lastMove;
+      settleTimer = setInterval(function () {
+        const now = Date.now();
+        const quiet = now - lastMove >= SETTLE_QUIET_MS && now - settleFrom >= SETTLE_MIN_MS;
+        if (!quiet && now - settleFrom < SETTLE_MAX_MS) return;
+        clearInterval(settleTimer);
+        settleTimer = null;
+        fitToSpace();
+        if (!document.body.classList.contains('edit-ready')) {
+          void ta.offsetHeight;  // commit the first height before transitions apply
+          document.body.classList.add('edit-ready');
+        }
+      }, 50);
+    }
 
     function enterEditing() {
       if (editing) return;
@@ -304,19 +334,15 @@
     ta.addEventListener('focus', function () {
       if (!editable || copying || isHandled) return;
       enterEditing();
-      fitToSpace();
-      // The keyboard and the sheet expansion animate in; measure again once
-      // they have settled.
-      setTimeout(fitToSpace, 350);
-      setTimeout(fitToSpace, 700);
+      settleThenFit();
     });
-    ta.addEventListener('blur', refit);
+    ta.addEventListener('blur', settleThenFit);
     ta.addEventListener('input', refreshEditState);
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', refit);
-      window.visualViewport.addEventListener('scroll', refit);
+      window.visualViewport.addEventListener('resize', settleThenFit);
+      window.visualViewport.addEventListener('scroll', settleThenFit);
     }
-    try { tg.onEvent('viewportChanged', refit); } catch (e) {}
+    try { tg.onEvent('viewportChanged', settleThenFit); } catch (e) {}
     resetBtn.addEventListener('click', function () {
       ta.value = loadedDraft;
       refreshEditState();
