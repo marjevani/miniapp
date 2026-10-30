@@ -235,24 +235,35 @@
     // second operator from sending it too. Editing can take longer than that,
     // so re-open the draft every 25 s while editing — draft_view re-claims for
     // the same operator. Stops at the session limit.
+    // Review fix (2026-10-30): the heartbeat starts as soon as an editable
+    // draft loads, not at the first tap — reading before typing used to let
+    // the 60 s claim lapse — and beats at once when the sheet comes back from
+    // the background (iOS pauses timers while it is minimized).
+    function beat() {
+      if (!heartbeat) return;
+      if (isHandled || Date.now() - openedAt > SESSION_MS) { stopHeartbeat(); return; }
+      fetch(apiUrl + '/api/draft_view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(authBody()),
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        if (isHandled) return;
+        if (b && b.locked_by_other) lockSheet('🔒 הטיוטה עברה למפעיל אחר — לא לשלוח');
+        else if (b && b.already_handled) lockSheet('⚠ הטיוטה כבר טופלה (' + (b.decision || '?') + ')');
+      })
+      .catch(function () {});  // a blip: the next beat retries
+    }
     function startHeartbeat() {
       if (heartbeat || approvalId === '0') return;  // the demo holds no claim
-      heartbeat = setInterval(function () {
-        if (isHandled || Date.now() - openedAt > SESSION_MS) { stopHeartbeat(); return; }
-        fetch(apiUrl + '/api/draft_view', {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(authBody()),
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (b) {
-          if (b && b.locked_by_other) lockSheet('🔒 הטיוטה עברה למפעיל אחר — לא לשלוח');
-          else if (b && b.already_handled) lockSheet('⚠ הטיוטה כבר טופלה (' + (b.decision || '?') + ')');
-        })
-        .catch(function () {});  // a blip: the next beat retries
-      }, 25 * 1000);
+      heartbeat = setInterval(beat, 25 * 1000);
     }
     function stopHeartbeat() { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } }
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') beat();
+    });
+    try { tg.onEvent('activated', beat); } catch (e) {}
 
     // Edit mode = ONE instant layout, set in the tap's own frame, that the
     // keyboard does not change afterwards (operator 2026-10-30: "simple, super
@@ -385,6 +396,7 @@
           hint.textContent = 'שוחזר הנוסח שערכת קודם';
         }
         refreshEditState();
+        startHeartbeat();
         return;
       }
       btn.disabled = false;
@@ -432,6 +444,7 @@
         btn.textContent = '⚠ ההעתקה האוטומטית נכשלה — בחר טקסט והדבק ידנית';
         btn.style.background = '#dc3545';
         btn.disabled = false;
+        if (editable) ta.readOnly = false;  // the box stays editable
       }
       // Commit the manual-send. Was navigator.sendBeacon(...) fired the instant
       // before tg.close() — UNRELIABLE on Telegram Desktop: the POST was dropped
@@ -449,6 +462,21 @@
           setTimeout(function () { tg.close(); }, 100);
         }
       }
+      // Review fix (2026-10-30): read the reply. A refusal (another operator
+      // sent it, already handled, expired session) used to close the sheet
+      // like a success, so the operator pasted anyway — a duplicate comment.
+      // Now it stays open with a blocking warning; the edit is kept. A network
+      // failure or no reply within 2.5 s still closes as before.
+      function onRefused(reason) {
+        if (settled) return;
+        settled = true;
+        const msg = (reason === 'locked_by_other' || reason === 'edit_in_progress')
+          ? '🔒 מפעיל אחר כבר מטפל בטיוטה — אל תדביקו בפייסבוק'
+          : reason === 'already_decided'
+            ? '⚠ הטיוטה כבר טופלה — אל תדביקו בפייסבוק'
+            : '⚠ השליחה לא נרשמה במערכת (' + reason + '). סגרו ופתחו שוב את הטיוטה מטלגרם.';
+        lockSheet(msg);
+      }
       // The edited text rides along only when the operator changed the draft.
       const extra = changed ? { edited_text: ta.value.trim() } : undefined;
       try {
@@ -457,8 +485,16 @@
           headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify(authBody(extra)),
           keepalive: true,
-        }).catch(function (e) { console.warn('manual_send POST failed:', e); })
-          .finally(onSettle);
+        })
+        .then(function (r) {
+          return r.json().then(function (b) { return { status: r.status, body: b || {} }; },
+                               function () { return { status: r.status, body: {} }; });
+        })
+        .then(function (x) {
+          if (x.status === 200 && (x.body.ok || x.body.already_processed)) onSettle();
+          else onRefused(x.body.reason || ('http_' + x.status));
+        })
+        .catch(function (e) { console.warn('manual_send POST failed:', e); onSettle(); });
       } catch (e) {
         console.warn('manual_send fetch threw:', e);
         onSettle();
