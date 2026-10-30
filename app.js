@@ -273,7 +273,10 @@
     // 34vh cap left half the screen empty above the iOS keyboard. Measured
     // against the VISUAL viewport (the part not under the keyboard) on every
     // resize / scroll / Telegram viewport change.
-    const MIN_EDIT_PX = 126;
+    // ~4 lines. The send button keeps its full 170px height (operator
+    // 2026-10-30), so above an iPhone keyboard the box gets what is left;
+    // below this floor the page scrolls instead (liftAboveKeyboard).
+    const MIN_EDIT_PX = 96;
     function fitToSpace() {
       if (!editing || isHandled) return;
       const vv = window.visualViewport;

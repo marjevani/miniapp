@@ -209,10 +209,11 @@
   body.editing .container { padding-bottom: 16px; }
   /* Height is set by app.js (fitToSpace): fills the space above the keyboard. */
   body.editing textarea.draft-text { max-height: none; }
+  /* The button keeps its full 170px height (operator 2026-10-30: "always
+     big"); only its position changes. fitToSpace subtracts its height. */
   body.editing #send-btn {
     position: static;
     width: 100%; max-width: none; margin: 4px 0 8px;
-    min-height: 0; padding: 15px;
   }
   .err-box {
     background: #f8d7da; color: #721c24;
@@ -324,6 +325,6 @@
 <!-- ?v bumped on each app.js change so a fresh index.html fetch pulls the
      new JS (defeats a stale cached bare `app.js`). Telegram's WebView still
      caches index.html itself — "Clear Cache" forces the page too. -->
-<script src="app.js?v=20261030b" defer></script>
+<script src="app.js?v=20261030c" defer></script>
 </body>
 </html>
