@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>בדיקת פתיחה בכרום</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #fff; color: #111; margin: 0; padding: 24px 16px; }
+  a.btn { display: block; text-align: center; padding: 16px; margin: 14px 0; border-radius: 12px;
+          font-size: 18px; text-decoration: none; color: #fff; background: #1a73e8; }
+  a.btn.ctrl { background: #777; }
+  p { line-height: 1.5; }
+  #ua { font-size: 11px; color: #888; direction: ltr; text-align: left; word-break: break-all; }
+</style>
+</head>
+<body>
+  <h2>בדיקה — פתיחת פייסבוק בכרום</h2>
+  <p>לחצו על הכפתור הכחול. אם נפתח <b>Chrome</b> (ולא אפליקציית פייסבוק) — הבדיקה הצליחה.</p>
+  <a class="btn" id="chrome" href="#">1 · פתח בכרום</a>
+  <a class="btn ctrl" id="plain" href="#">2 · קישור רגיל (להשוואה)</a>
+  <p>ספרו לנו: מה נפתח בכל כפתור — Chrome, אפליקציית פייסבוק, או דפדפן בתוך טלגרם?</p>
+  <div id="ua"></div>
+<script>
+  var TARGET = 'https://www.facebook.com/groups/1348717149560907';
+  var u = new URL(TARGET);
+  var intent = 'intent://' + u.host + u.pathname + u.search +
+               '#Intent;scheme=https;package=com.android.chrome;' +
+               'S.browser_fallback_url=' + encodeURIComponent(TARGET) + ';end';
+  document.getElementById('chrome').href = intent;
+  document.getElementById('plain').href = TARGET;
+  document.getElementById('ua').textContent = navigator.userAgent;
+  // ?auto=1 — also try the jump with no tap (the real button would do this).
+  if (new URLSearchParams(location.search).get('auto') === '1') {
+    setTimeout(function () { location.href = intent; }, 400);
+  }
+</script>
+</body>
+</html>
