@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>בדיקת כרום 2</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #fff; color: #111; margin: 0; padding: 24px 16px; }
+  a.btn { display: block; text-align: center; padding: 16px; margin: 12px 0; border-radius: 12px;
+          font-size: 18px; text-decoration: none; color: #fff; background: #1a73e8; }
+  a.btn.alt { background: #0b8043; }
+  a.btn.ctrl { background: #777; }
+  .env { padding: 10px 12px; border-radius: 10px; background: #fff4d6; font-weight: 600; }
+  p { line-height: 1.5; }
+  #ua { font-size: 11px; color: #888; direction: ltr; text-align: left; word-break: break-all; margin-top: 18px; }
+</style>
+</head>
+<body>
+  <h2>בדיקה 2 — פייסבוק בכרום</h2>
+  <div class="env" id="env"></div>
+  <p>לחצו על <b>כפתור 1</b>. הצלחה = נפתח פייסבוק בתוך <b>Chrome</b> (לא באפליקציית פייסבוק).</p>
+  <a class="btn" id="b1" href="#">1 · פתח פייסבוק בכרום</a>
+  <p>אם כפתור 1 לא עבד — לחצו על <b>כפתור 2</b> (פותח את הדף הזה בכרום), ושם שוב על כפתור 1.</p>
+  <a class="btn alt" id="b2" href="#">2 · פתח את הדף הזה בכרום</a>
+  <a class="btn ctrl" id="b3" href="#">3 · קישור רגיל (להשוואה)</a>
+  <p>ספרו לנו: מה כתוב בפס הצהוב, ומה נפתח בכל כפתור.</p>
+  <div id="ua"></div>
+<script>
+  var TARGET = 'https://www.facebook.com/groups/1348717149560907';
+  function intentFor(url, pkg, fallback) {
+    var u = new URL(url);
+    return 'intent://' + u.host + u.pathname + u.search + '#Intent;scheme=https;' +
+           'package=' + pkg + ';' +
+           (fallback ? 'S.browser_fallback_url=' + encodeURIComponent(fallback) + ';' : '') + 'end';
+  }
+  // 1: an intent for an app that is NOT installed, with facebook.com as the
+  //    browser fallback. Chrome loads the fallback in the tab and marks that
+  //    chain "do not hand off to an app" — so the FB app should not grab it.
+  document.getElementById('b1').href = intentFor(TARGET, 'com.ootzi.noapp', TARGET);
+  // 2: escape a Telegram in-app browser — open THIS page in real Chrome.
+  var self = location.origin + location.pathname + '?in=chrome';
+  document.getElementById('b2').href = intentFor(self, 'com.android.chrome', null);
+  document.getElementById('b3').href = TARGET;
+
+  var ua = navigator.userAgent;
+  var env = /; wv\)/.test(ua) ? 'אתם בדפדפן הפנימי של טלגרם / אפליקציה (WebView)'
+          : /SamsungBrowser/.test(ua) ? 'אתם ב-Samsung Internet'
+          : /Chrome\//.test(ua) ? 'אתם ב-Chrome (או לשונית Chrome בתוך טלגרם)'
+          : 'דפדפן אחר';
+  if (new URLSearchParams(location.search).get('in') === 'chrome') env += ' — נפתח דרך כפתור 2';
+  document.getElementById('env').textContent = env;
+  document.getElementById('ua').textContent = ua;
+</script>
+</body>
+</html>
